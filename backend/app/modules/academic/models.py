@@ -120,3 +120,23 @@ class Topic(BaseEntity):
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     
     chapter: Mapped["Chapter"] = relationship("Chapter", back_populates="topics", lazy="selectin")
+    subtopics: Mapped[List["Subtopic"]] = relationship("Subtopic", back_populates="topic", cascade="all, delete-orphan", lazy="selectin")
+    learning_objectives: Mapped[List["LearningObjective"]] = relationship("LearningObjective", back_populates="topic", cascade="all, delete-orphan", lazy="selectin")
+
+class Subtopic(BaseEntity):
+    __tablename__ = "subtopics"
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(150), index=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+    
+    topic: Mapped["Topic"] = relationship("Topic", back_populates="subtopics", lazy="selectin")
+
+class LearningObjective(BaseEntity):
+    __tablename__ = "learning_objectives"
+    topic_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(500))
+    bloom_level: Mapped[Optional[str]] = mapped_column(String(50))
+    
+    topic: Mapped["Topic"] = relationship("Topic", back_populates="learning_objectives", lazy="selectin")
+

@@ -19,6 +19,7 @@ from app.core.middleware import SecurityHeadersMiddleware
 from app.modules.auth.router import router as auth_router
 from app.modules.academic.router import router as academic_router
 from app.modules.content.router import router as content_router
+from app.modules.assessment.router import router as assessment_router
 
 # CORS Middleware
 app.add_middleware(
@@ -43,6 +44,8 @@ app.include_router(health.router)
 app.include_router(auth_router, prefix=settings.api_v1_str)
 app.include_router(academic_router, prefix=settings.api_v1_str)
 app.include_router(content_router, prefix=settings.api_v1_str)
+app.include_router(assessment_router, prefix=settings.api_v1_str)
+
 
 @app.on_event("startup")
 async def startup_event():
