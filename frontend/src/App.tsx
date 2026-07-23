@@ -1,10 +1,39 @@
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import confetti from 'canvas-confetti';
+import {
+  LayoutDashboard,
+  BookOpen,
+  FileCheck2,
+  Bookmark,
+  TrendingUp,
+  Sparkles,
+  Search,
+  Flame,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  BrainCircuit,
+  Trophy,
+  Zap,
+  RotateCcw,
+  Target,
+  ArrowRight,
+} from 'lucide-react';
+
 import { apiClient } from './api/client';
 import type { Attempt, StudentDashboardData, LeaderboardItem, BookmarkItem, UnifiedSearchResult } from './types/platform';
+import { Button } from './components/common/Button';
+import { Card } from './components/common/Card';
+import { Badge } from './components/common/Badge';
+import { ThemeToggle } from './components/common/ThemeToggle';
+import { AIChatDrawer } from './components/ai/AIChatDrawer';
+import './styles/theme.css';
 
 type ViewMode = 'dashboard' | 'browser' | 'test' | 'result' | 'bookmarks' | 'analytics';
 
 export function App() {
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
   const [dashboardData, setDashboardData] = useState<StudentDashboardData | null>(null);
   const [activeAttempt, setActiveAttempt] = useState<Attempt | null>(null);
@@ -12,10 +41,14 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<UnifiedSearchResult | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [isAIDrawerOpen, setIsAIDrawerOpen] = useState<boolean>(false);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
   const [timerSeconds, setTimerSeconds] = useState<number>(3600);
-  const [isBookmarked, setIsBookmarked] = useState<boolean>(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     loadDashboard();
@@ -33,29 +66,28 @@ export function App() {
     return () => clearInterval(interval);
   }, [currentView, timerSeconds]);
 
-  // Keyboard shortcuts (1-4 select option, N next, P prev, M mark, S submit)
+  // Global Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (currentView !== 'test' || !activeAttempt) return;
-      if (['1', '2', '3', '4'].includes(e.key)) {
-        const idx = parseInt(e.key) - 1;
-        const currentQ = activeAttempt.attempt_questions[activeQuestionIndex]?.question;
-        if (currentQ && currentQ.options[idx]) {
-          handleSelectOption(currentQ.options[idx].id);
-        }
-      } else if (e.key.toLowerCase() === 'n') {
-        if (activeQuestionIndex < activeAttempt.attempt_questions.length - 1) {
-          setActiveQuestionIndex(prev => prev + 1);
-        }
-      } else if (e.key.toLowerCase() === 'p') {
-        if (activeQuestionIndex > 0) {
-          setActiveQuestionIndex(prev => prev - 1);
-        }
-      } else if (e.key.toLowerCase() === 'm') {
-        handleMarkForReview();
-      } else if (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey)) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsSearchOpen(prev => !prev);
+      } else if (currentView === 'test' && activeAttempt) {
+        if (['1', '2', '3', '4'].includes(e.key)) {
+          const idx = parseInt(e.key) - 1;
+          const currentQ = activeAttempt.attempt_questions[activeQuestionIndex]?.question;
+          if (currentQ && currentQ.options[idx]) {
+            handleSelectOption(currentQ.options[idx].id);
+          }
+        } else if (e.key.toLowerCase() === 'n') {
+          if (activeQuestionIndex < activeAttempt.attempt_questions.length - 1) {
+            setActiveQuestionIndex(prev => prev + 1);
+          }
+        } else if (e.key.toLowerCase() === 'p') {
+          if (activeQuestionIndex > 0) {
+            setActiveQuestionIndex(prev => prev - 1);
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -146,8 +178,7 @@ export function App() {
     const currentQ = activeAttempt.attempt_questions[activeQuestionIndex]?.question;
     if (!currentQ) return;
 
-    const res = await apiClient.toggleBookmark(currentQ.id, 'QUESTION');
-    setIsBookmarked(res.bookmarked);
+    await apiClient.toggleBookmark(currentQ.id, 'QUESTION');
     loadBookmarks();
   };
 
@@ -158,6 +189,11 @@ export function App() {
       setActiveAttempt(completed);
       setCurrentView('result');
       loadDashboard();
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
     } catch (e) {
       console.error(e);
     }
@@ -181,373 +217,574 @@ export function App() {
   const currentQ = currentAQ?.question;
 
   return (
-    <div style={{ display: 'flex', width: '100%', minHeight: '100vh', background: '#0a0b0e', color: '#f3f4f6' }}>
-      {/* ── Sidebar Navigation ── */}
-      <aside style={{ width: '260px', background: '#12141a', borderRight: '1px solid #232736', padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <div>
-          <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>⚡</span> GOVEXAM PLATFORM
-          </h2>
-          <span style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Telangana Intelligence Platform</span>
+    <div style={{ display: 'flex', width: '100%', minHeight: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)' }}>
+      {/* ── Silicon Valley Sidebar Navigation ── */}
+      <aside style={{ width: '270px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-default)', padding: '24px 18px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="gradient-text-ai">TopExamX</span>
+              <Badge variant="ai">PRO AI</Badge>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Question Intelligence Platform</div>
+          </div>
         </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button onClick={() => setCurrentView('dashboard')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '8px', background: currentView === 'dashboard' ? 'rgba(99,102,241,0.15)' : 'transparent', color: currentView === 'dashboard' ? '#818cf8' : '#9ca3af', border: 'none', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
-            <span>📊</span> Dashboard
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
+              background: currentView === 'dashboard' ? 'var(--primary-glow)' : 'transparent',
+              color: currentView === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: currentView === 'dashboard' ? '1px solid var(--border-highlight)' : '1px solid transparent',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              textAlign: 'left',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <LayoutDashboard size={18} /> Dashboard
           </button>
-          <button onClick={() => setCurrentView('browser')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '8px', background: currentView === 'browser' ? 'rgba(99,102,241,0.15)' : 'transparent', color: currentView === 'browser' ? '#818cf8' : '#9ca3af', border: 'none', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
-            <span>📚</span> Syllabus & Exams
+
+          <button
+            onClick={() => setCurrentView('browser')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
+              background: currentView === 'browser' ? 'var(--primary-glow)' : 'transparent',
+              color: currentView === 'browser' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: currentView === 'browser' ? '1px solid var(--border-highlight)' : '1px solid transparent',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              textAlign: 'left',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <BookOpen size={18} /> Syllabus & Exams
           </button>
-          <button onClick={() => handleStartPractice('PRACTICE')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '8px', background: currentView === 'test' ? 'rgba(99,102,241,0.15)' : 'transparent', color: currentView === 'test' ? '#818cf8' : '#9ca3af', border: 'none', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
-            <span>📝</span> Practice & Test Engine
+
+          <button
+            onClick={() => handleStartPractice('PRACTICE')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
+              background: currentView === 'test' ? 'var(--primary-glow)' : 'transparent',
+              color: currentView === 'test' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: currentView === 'test' ? '1px solid var(--border-highlight)' : '1px solid transparent',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              textAlign: 'left',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <FileCheck2 size={18} /> Test Engine
           </button>
-          <button onClick={() => setCurrentView('bookmarks')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '8px', background: currentView === 'bookmarks' ? 'rgba(99,102,241,0.15)' : 'transparent', color: currentView === 'bookmarks' ? '#818cf8' : '#9ca3af', border: 'none', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
-            <span>🔖</span> Bookmarks ({bookmarks.length})
+
+          <button
+            onClick={() => setCurrentView('bookmarks')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
+              background: currentView === 'bookmarks' ? 'var(--primary-glow)' : 'transparent',
+              color: currentView === 'bookmarks' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: currentView === 'bookmarks' ? '1px solid var(--border-highlight)' : '1px solid transparent',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              textAlign: 'left',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <Bookmark size={18} /> Saved ({bookmarks.length})
           </button>
-          <button onClick={() => setCurrentView('analytics')} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '8px', background: currentView === 'analytics' ? 'rgba(99,102,241,0.15)' : 'transparent', color: currentView === 'analytics' ? '#818cf8' : '#9ca3af', border: 'none', cursor: 'pointer', fontWeight: '600', textAlign: 'left' }}>
-            <span>📈</span> Analytics & Retention
+
+          <button
+            onClick={() => setCurrentView('analytics')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '11px 14px',
+              borderRadius: '10px',
+              background: currentView === 'analytics' ? 'var(--primary-glow)' : 'transparent',
+              color: currentView === 'analytics' ? 'var(--primary)' : 'var(--text-secondary)',
+              border: currentView === 'analytics' ? '1px solid var(--border-highlight)' : '1px solid transparent',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '14px',
+              textAlign: 'left',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <TrendingUp size={18} /> Analytics & Mastery
           </button>
         </nav>
 
-        <div style={{ marginTop: 'auto', background: '#161822', padding: '14px', borderRadius: '10px', border: '1px solid #232736' }}>
-          <div style={{ fontSize: '12px', color: '#9ca3af' }}>Current Streak</div>
-          <div style={{ fontSize: '20px', fontWeight: '800', color: '#f59e0b' }}>🔥 7 Days Streak</div>
-          <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>Keep solving daily to maintain retention!</div>
+        {/* AI Tutor Callout Widget */}
+        <div style={{ marginTop: 'auto', background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%)', border: '1px solid rgba(192, 132, 252, 0.3)', padding: '16px', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, color: '#c084fc' }}>
+            <Sparkles size={16} /> AI Tutor Connected
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Instant answers, quick tricks & concept breakdowns.</div>
+          <Button variant="ai" size="sm" onClick={() => setIsAIDrawerOpen(true)} leftIcon={<Zap size={14} />}>
+            Ask AI Tutor
+          </Button>
         </div>
       </aside>
 
-      {/* ── Main View Container ── */}
+      {/* ── Main App Content ── */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        {/* Top Header Bar */}
-        <header style={{ height: '64px', background: '#12141a', borderBottom: '1px solid #232736', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={() => setIsSearchOpen(true)} style={{ background: '#161822', border: '1px solid #232736', padding: '8px 16px', borderRadius: '8px', color: '#6b7280', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', width: '320px' }}>
-            <span>🔍 Search questions, topics, exams...</span>
-            <kbd style={{ background: '#232736', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', color: '#9ca3af' }}>Ctrl+K</kbd>
+        {/* Top Floating App Bar */}
+        <header style={{ height: '68px', background: 'var(--bg-glass)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--border-default)', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
+          <button
+            onClick={() => setIsSearchOpen(true)}
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-default)',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              width: '340px',
+            }}
+          >
+            <Search size={16} />
+            <span>Search questions, topics, exams...</span>
+            <kbd style={{ background: 'var(--bg-card)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', color: 'var(--text-secondary)', marginLeft: 'auto' }}>Ctrl+K</kbd>
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span className="badge badge-success">Telangana Police Constable 2026</span>
-            <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '14px' }}>DK</div>
+            <Badge variant="success" icon={<CheckCircle2 size={12} />}>Telangana Police 2026</Badge>
+            <ThemeToggle theme={theme} onToggle={() => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))} />
+            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px', color: '#fff', boxShadow: 'var(--shadow-glow)' }}>
+              DK
+            </div>
           </div>
         </header>
 
-        <div style={{ padding: '28px', flex: 1 }}>
-          {/* ── DASHBOARD VIEW ── */}
-          {currentView === 'dashboard' && dashboardData && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h1 style={{ fontSize: '26px', fontWeight: '800' }}>Welcome back, Student 👋</h1>
-                  <p style={{ color: '#9ca3af', fontSize: '14px' }}>Target: Telangana Police Recruitment Exam 2026</p>
-                </div>
-                <button onClick={() => handleStartPractice('EXAM_SIMULATION')} style={{ background: '#6366f1', color: '#fff', padding: '12px 24px', borderRadius: '8px', border: 'none', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}>
-                  ▶ Start Full Mock Test
-                </button>
-              </div>
-
-              {/* Bento Grid Metrics */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                <div className="bento-card">
-                  <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: '600' }}>OVERALL ACCURACY</div>
-                  <div style={{ fontSize: '28px', fontWeight: '800', color: '#10b981', marginTop: '6px' }}>{dashboardData.overall_accuracy_pct}%</div>
-                  <span className="badge badge-success" style={{ marginTop: '8px' }}>Top 5% Candidate</span>
-                </div>
-                <div className="bento-card">
-                  <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: '600' }}>LEARNING HEALTH SCORE</div>
-                  <div style={{ fontSize: '28px', fontWeight: '800', color: '#818cf8', marginTop: '6px' }}>{dashboardData.learning_health_score}/100</div>
-                  <span className="badge badge-primary" style={{ marginTop: '8px' }}>Optimal Retention</span>
-                </div>
-                <div className="bento-card">
-                  <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: '600' }}>QUESTIONS ATTEMPTED</div>
-                  <div style={{ fontSize: '28px', fontWeight: '800', color: '#f3f4f6', marginTop: '6px' }}>{dashboardData.total_questions_attempted}</div>
-                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>From 500 Question Bank</span>
-                </div>
-                <div className="bento-card">
-                  <div style={{ color: '#6b7280', fontSize: '12px', fontWeight: '600' }}>REVISION DUE (SM-2)</div>
-                  <div style={{ fontSize: '28px', fontWeight: '800', color: '#f59e0b', marginTop: '6px' }}>{dashboardData.revision_due_count} Items</div>
-                  <button onClick={() => handleStartPractice('REVISION')} style={{ background: 'transparent', color: '#fbbf24', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '700', padding: 0, marginTop: '6px' }}>Revise Now →</button>
-                </div>
-              </div>
-
-              {/* Subject Accuracy & Weak Topics */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
-                <div className="bento-card">
-                  <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>Subject Mastery & Accuracy</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {Object.entries(dashboardData.subject_accuracy).map(([subj, acc]) => (
-                      <div key={subj}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                          <span>{subj}</span>
-                          <span style={{ fontWeight: '700', color: acc >= 80 ? '#10b981' : '#f59e0b' }}>{acc}%</span>
-                        </div>
-                        <div style={{ height: '8px', background: '#232736', borderRadius: '4px', overflow: 'hidden' }}>
-                          <div style={{ width: `${acc}%`, height: '100%', background: acc >= 80 ? '#10b981' : '#f59e0b', borderRadius: '4px' }}></div>
-                        </div>
-                      </div>
-                    ))}
+        {/* View Content Area */}
+        <div style={{ padding: '32px', flex: 1 }}>
+          <AnimatePresence mode="wait">
+            {/* ── BENTO DASHBOARD VIEW ── */}
+            {currentView === 'dashboard' && dashboardData && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>
+                      Welcome back, <span className="gradient-text-ai">Dinesh</span>
+                    </h1>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
+                      Target: Telangana Police Constable & Sub-Inspector Recruitment Prelims 2026
+                    </p>
                   </div>
+                  <Button variant="primary" size="lg" onClick={() => handleStartPractice('EXAM_SIMULATION')} rightIcon={<ArrowRight size={18} />}>
+                    Launch Full Mock Test
+                  </Button>
                 </div>
 
-                <div className="bento-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Recommended Practice</h3>
-                  <div style={{ background: '#12141a', padding: '14px', borderRadius: '8px', border: '1px solid #232736' }}>
-                    <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: '700' }}>⚠️ WEAK TOPICS DETECTED</div>
-                    <div style={{ fontSize: '14px', fontWeight: '600', marginTop: '4px' }}>Geography of Telangana & Physical Geography</div>
-                    <button onClick={() => handleStartPractice('WEAK_TOPIC_PRACTICE')} style={{ marginTop: '10px', background: '#ef4444', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', width: '100%' }}>
-                      Practice Weak Topics Now
+                {/* Bento Grid Metrics Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
+                  <Card glow="emerald">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Overall Accuracy</span>
+                      <Target size={18} color="#10b981" />
+                    </div>
+                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#10b981', marginTop: '10px' }}>{dashboardData.overall_accuracy_pct}%</div>
+                    <Badge variant="success" style={{ marginTop: '10px' }}>Top 5% Rank</Badge>
+                  </Card>
+
+                  <Card glow="indigo">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Health Score</span>
+                      <BrainCircuit size={18} color="#818cf8" />
+                    </div>
+                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#818cf8', marginTop: '10px' }}>{dashboardData.learning_health_score}/100</div>
+                    <Badge variant="primary" style={{ marginTop: '10px' }}>SM-2 Optimized</Badge>
+                  </Card>
+
+                  <Card glow="amber">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revision Queue</span>
+                      <RotateCcw size={18} color="#f59e0b" />
+                    </div>
+                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#f59e0b', marginTop: '10px' }}>{dashboardData.revision_due_count} Items</div>
+                    <button onClick={() => handleStartPractice('REVISION')} style={{ background: 'none', border: 'none', color: '#fbbf24', fontSize: '13px', fontWeight: 700, cursor: 'pointer', padding: 0, marginTop: '8px' }}>
+                      Start Spaced Revision →
                     </button>
-                  </div>
+                  </Card>
 
-                  <div style={{ background: '#12141a', padding: '14px', borderRadius: '8px', border: '1px solid #232736' }}>
-                    <div style={{ fontSize: '12px', color: '#3b82f6', fontWeight: '700' }}>📅 UPCOMING EXAM COUNTDOWN</div>
-                    <div style={{ fontSize: '18px', fontWeight: '800', marginTop: '4px' }}>42 Days Remaining</div>
-                    <div style={{ fontSize: '12px', color: '#9ca3af' }}>Telangana Police Constable Prelims 2026</div>
+                  <Card glow="cyan">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Study Streak</span>
+                      <Flame size={18} color="#ef4444" />
+                    </div>
+                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#f87171', marginTop: '10px' }}>7 Days 🔥</div>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>Streak Goal: 14 Days</span>
+                  </Card>
+                </div>
+
+                {/* Subject Mastery & Recommendations */}
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+                  <Card>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Subject Mastery & Accuracy Breakdown</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                      {Object.entries(dashboardData.subject_accuracy).map(([subject, accuracy]) => (
+                        <div key={subject}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px' }}>
+                            <span style={{ fontWeight: 600 }}>{subject}</span>
+                            <span style={{ fontWeight: 700, color: accuracy >= 80 ? '#10b981' : '#f59e0b' }}>{accuracy}% Accuracy</span>
+                          </div>
+                          <div style={{ height: '10px', background: 'var(--bg-surface)', borderRadius: '9999px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${accuracy}%` }}
+                              transition={{ duration: 0.8, ease: 'easeOut' }}
+                              style={{
+                                height: '100%',
+                                background: accuracy >= 80 ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)' : 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)',
+                                borderRadius: '9999px',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <Card glow="amber">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>
+                        <AlertTriangle size={16} /> WEAK TOPICS DETECTED
+                      </div>
+                      <h4 style={{ fontSize: '15px', fontWeight: 700 }}>Geography of Telangana & Physical Geography</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>Current accuracy is 45%. Solve targeted weak topic questions to boost exam score.</p>
+                      <Button variant="danger" size="sm" onClick={() => handleStartPractice('WEAK_TOPIC_PRACTICE')}>
+                        Practice Weak Topics
+                      </Button>
+                    </Card>
+
+                    <Card>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>
+                        <Clock size={16} /> EXAM COUNTDOWN
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: 800 }}>42 Days Left</div>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Telangana Police Constable Prelims 2026</div>
+                    </Card>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+              </motion.div>
+            )}
 
-          {/* ── QUESTION TEST SCREEN (Supports 10 Learning Modes) ── */}
-          {currentView === 'test' && activeAttempt && currentQ && (
-            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '20px', height: 'calc(100vh - 120px)' }}>
-              {/* Main Question Panel */}
-              <div className="bento-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #232736', paddingBottom: '14px', marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span className="badge badge-primary">{activeAttempt.mode}</span>
-                      <span style={{ fontSize: '14px', color: '#9ca3af' }}>Question {activeQuestionIndex + 1} of {activeAttempt.attempt_questions.length}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                      <div style={{ fontFamily: 'JetBrains Mono', fontSize: '18px', fontWeight: '800', color: timerSeconds < 300 ? '#ef4444' : '#f59e0b' }}>
-                        ⏱ {formatTimer(timerSeconds)}
+            {/* ── QUESTION TEST SCREEN ── */}
+            {currentView === 'test' && activeAttempt && currentQ && (
+              <motion.div
+                key="test"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+                style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '24px', height: 'calc(100vh - 140px)' }}
+              >
+                {/* Question Container */}
+                <Card style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    {/* Header Controls */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-default)', paddingBottom: '16px', marginBottom: '24px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <Badge variant="primary">{activeAttempt.mode}</Badge>
+                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                          Question {activeQuestionIndex + 1} of {activeAttempt.attempt_questions.length}
+                        </span>
                       </div>
-                      <button onClick={handleToggleBookmark} style={{ background: 'transparent', border: '1px solid #232736', color: isBookmarked ? '#f59e0b' : '#9ca3af', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>
-                        {isBookmarked ? '★ Bookmarked' : '☆ Bookmark'}
-                      </button>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 800, color: timerSeconds < 300 ? '#ef4444' : '#f59e0b', background: 'var(--bg-surface)', padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
+                          ⏱ {formatTimer(timerSeconds)}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={handleToggleBookmark}>
+                          <Bookmark size={14} /> Save Question
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Question Content */}
+                    <h2 style={{ fontSize: '19px', fontWeight: 600, lineHeight: 1.6, marginBottom: '28px' }}>
+                      {currentQ.content}
+                    </h2>
+
+                    {/* Options Grid */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {currentQ.options.map((opt, idx) => {
+                        const isSelected = currentAQ?.selected_option_id === opt.id;
+                        return (
+                          <motion.div
+                            key={opt.id}
+                            whileHover={{ x: 3 }}
+                            onClick={() => handleSelectOption(opt.id)}
+                            style={{
+                              padding: '16px 20px',
+                              borderRadius: '12px',
+                              border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-default)',
+                              background: isSelected ? 'var(--primary-glow)' : 'var(--bg-surface)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '16px',
+                              transition: 'border-color 0.15s ease',
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                border: isSelected ? '2px solid var(--primary)' : '1px solid var(--text-muted)',
+                                background: isSelected ? 'var(--primary)' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '13px',
+                                fontWeight: 700,
+                                color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                              }}
+                            >
+                              {String.fromCharCode(65 + idx)}
+                            </div>
+                            <div style={{ fontSize: '15px', color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: isSelected ? 600 : 400 }}>
+                              {opt.content}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Question Content */}
-                  <div style={{ fontSize: '18px', fontWeight: '600', lineHeight: '1.6', marginBottom: '24px' }}>
-                    {currentQ.content}
+                  {/* Test Navigation Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-default)', paddingTop: '20px', marginTop: '24px' }}>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <Button
+                        variant="secondary"
+                        disabled={activeQuestionIndex === 0}
+                        onClick={() => setActiveQuestionIndex(prev => prev - 1)}
+                      >
+                        ← Previous (P)
+                      </Button>
+                      <Button variant="outline" onClick={handleMarkForReview}>
+                        🔖 Mark Review
+                      </Button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <Button
+                        variant="secondary"
+                        disabled={activeQuestionIndex === activeAttempt.attempt_questions.length - 1}
+                        onClick={() => setActiveQuestionIndex(prev => prev + 1)}
+                      >
+                        Next → (N)
+                      </Button>
+                      <Button variant="primary" onClick={handleSubmitTest}>
+                        Submit Test
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Question Palette Drawer */}
+                <Card style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Question Palette</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', maxHeight: '380px', overflowY: 'auto' }}>
+                    {activeAttempt.attempt_questions.map((aq, idx) => {
+                      let statusClass = 'unvisited';
+                      if (aq.status === 'ANSWERED') statusClass = 'answered';
+                      if (aq.status === 'MARKED_FOR_REVIEW') statusClass = 'marked';
+                      if (aq.status === 'ANSWERED_AND_MARKED') statusClass = 'answered-marked';
+
+                      return (
+                        <button
+                          key={aq.id}
+                          onClick={() => setActiveQuestionIndex(idx)}
+                          className={`palette-btn ${statusClass} ${activeQuestionIndex === idx ? 'active' : ''}`}
+                        >
+                          {idx + 1}
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  {/* Options */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {currentQ.options.map((opt, idx) => {
-                      const isSelected = currentAQ?.selected_option_id === opt.id;
+                  <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#10b981' }}></div> Answered
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#f59e0b' }}></div> Marked for Review
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#6366f1' }}></div> Answered & Marked
+                    </div>
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+
+            {/* ── RESULT & PERFORMANCE REPORT VIEW ── */}
+            {currentView === 'result' && activeAttempt && (
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}
+              >
+                <Card glow="emerald" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(16,185,129,0.15) 100%)', padding: '36px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <Badge variant="success" icon={<Trophy size={14} />}>Attempt Submitted & Auto-Graded</Badge>
+                      <h1 style={{ fontSize: '36px', fontWeight: 800, margin: '12px 0 6px 0' }}>Score: {activeAttempt.score} / {activeAttempt.total_marks}</h1>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
+                        Accuracy: <strong>{activeAttempt.accuracy_pct}%</strong> • Average Speed: <strong>{activeAttempt.speed_seconds_per_q}s</strong> / question
+                      </p>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '42px', fontWeight: 800, color: '#10b981' }}>98.5th</div>
+                      <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Candidate Percentile Rank</div>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Question-by-Question Breakdown */}
+                <Card>
+                  <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px' }}>Question-by-Question Performance Review</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {activeAttempt.attempt_questions.map((aq, idx) => {
+                      const q = aq.question;
+                      if (!q) return null;
                       return (
-                        <div
-                          key={opt.id}
-                          onClick={() => handleSelectOption(opt.id)}
-                          style={{
-                            padding: '14px 18px',
-                            borderRadius: '10px',
-                            border: isSelected ? '2px solid #6366f1' : '1px solid #232736',
-                            background: isSelected ? 'rgba(99,102,241,0.15)' : '#12141a',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '14px',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <div style={{ width: '26px', height: '26px', borderRadius: '50%', border: isSelected ? '2px solid #6366f1' : '1px solid #4b5563', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700', color: isSelected ? '#818cf8' : '#9ca3af' }}>
-                            {String.fromCharCode(65 + idx)}
+                        <div key={aq.id} style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: aq.is_correct ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(239,68,68,0.3)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '16px', fontWeight: 700 }}>Q{idx + 1}. {q.content}</span>
+                            <Badge variant={aq.is_correct ? 'success' : 'danger'}>
+                              {aq.is_correct ? `+${q.marks} Marks` : `-${q.negative_marks} Marks`}
+                            </Badge>
                           </div>
-                          <div style={{ fontSize: '15px', color: isSelected ? '#fff' : '#d1d5db' }}>{opt.content}</div>
+
+                          {q.explanation && (
+                            <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.6 }}>
+                              💡 <strong>Detailed Explanation:</strong> {q.explanation}
+                            </div>
+                          )}
+
+                          {q.quick_trick_explanation && (
+                            <div style={{ background: 'rgba(245,158,11,0.1)', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', color: '#fbbf24', marginTop: '8px', border: '1px solid rgba(245,158,11,0.3)' }}>
+                              ⚡ <strong>Quick Trick Mnemonic:</strong> {q.quick_trick_explanation}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
-                </div>
+                </Card>
+              </motion.div>
+            )}
 
-                {/* Footer Controls */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #232736', paddingTop: '16px', marginTop: '20px' }}>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                      disabled={activeQuestionIndex === 0}
-                      onClick={() => setActiveQuestionIndex(prev => prev - 1)}
-                      style={{ padding: '10px 18px', borderRadius: '8px', background: '#12141a', border: '1px solid #232736', color: '#9ca3af', cursor: activeQuestionIndex === 0 ? 'not-allowed' : 'pointer', fontWeight: '600' }}
-                    >
-                      ← Previous (P)
-                    </button>
-                    <button
-                      onClick={handleMarkForReview}
-                      style={{ padding: '10px 18px', borderRadius: '8px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24', cursor: 'pointer', fontWeight: '600' }}
-                    >
-                      🔖 Mark for Review (M)
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                      disabled={activeQuestionIndex === activeAttempt.attempt_questions.length - 1}
-                      onClick={() => setActiveQuestionIndex(prev => prev + 1)}
-                      style={{ padding: '10px 18px', borderRadius: '8px', background: '#12141a', border: '1px solid #232736', color: '#fff', cursor: 'pointer', fontWeight: '600' }}
-                    >
-                      Next → (N)
-                    </button>
-                    <button
-                      onClick={handleSubmitTest}
-                      style={{ padding: '10px 24px', borderRadius: '8px', background: '#10b981', border: 'none', color: '#fff', fontWeight: '700', cursor: 'pointer' }}
-                    >
-                      Submit Test
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Question Palette Drawer */}
-              <div className="bento-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <h3 style={{ fontSize: '15px', fontWeight: '700' }}>Question Palette</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', maxHeight: '350px', overflowY: 'auto' }}>
-                  {activeAttempt.attempt_questions.map((aq, idx) => {
-                    let statusClass = 'unvisited';
-                    if (aq.status === 'ANSWERED') statusClass = 'answered';
-                    if (aq.status === 'MARKED_FOR_REVIEW') statusClass = 'marked';
-                    if (aq.status === 'ANSWERED_AND_MARKED') statusClass = 'answered-marked';
-
-                    return (
-                      <button
-                        key={aq.id}
-                        onClick={() => setActiveQuestionIndex(idx)}
-                        className={`palette-btn ${statusClass} ${activeQuestionIndex === idx ? 'active' : ''}`}
-                      >
-                        {idx + 1}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div style={{ borderTop: '1px solid #232736', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px', color: '#9ca3af' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#10b981' }}></div> Answered
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#f59e0b' }}></div> Marked for Review
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#6366f1' }}></div> Answered & Marked
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── RESULT & PERFORMANCE REPORT SCREEN ── */}
-          {currentView === 'result' && activeAttempt && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div className="bento-card" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(16,185,129,0.1) 100%)', border: '1px solid #33384f', padding: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <span className="badge badge-success">Attempt Finalized</span>
-                  <h1 style={{ fontSize: '32px', fontWeight: '800', margin: '8px 0' }}>Score: {activeAttempt.score} / {activeAttempt.total_marks}</h1>
-                  <p style={{ color: '#9ca3af' }}>Accuracy: {activeAttempt.accuracy_pct}% • Speed: {activeAttempt.speed_seconds_per_q}s per question</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '36px', fontWeight: '800', color: '#10b981' }}>98.5th Percentile</div>
-                  <div style={{ color: '#9ca3af', fontSize: '13px' }}>Rank 3 out of 100 Candidates</div>
-                </div>
-              </div>
-
-              {/* Question Breakdown */}
-              <div className="bento-card">
-                <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '16px' }}>Detailed Question-by-Question Review</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {activeAttempt.attempt_questions.map((aq, idx) => {
-                    const q = aq.question;
-                    if (!q) return null;
-                    return (
-                      <div key={aq.id} style={{ background: '#12141a', padding: '16px', borderRadius: '10px', border: aq.is_correct ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(239,68,68,0.3)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <span style={{ fontWeight: '700' }}>Q{idx + 1}. {q.content}</span>
-                          <span style={{ fontWeight: '700', color: aq.is_correct ? '#10b981' : '#ef4444' }}>
-                            {aq.is_correct ? `+${q.marks} Marks` : `-${q.negative_marks} Marks`}
-                          </span>
+            {/* ── BOOKMARKS VIEW ── */}
+            {currentView === 'bookmarks' && (
+              <motion.div key="bookmarks" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <Card>
+                  <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '20px' }}>Saved Question Bookmarks</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {bookmarks.map((bm, idx) => (
+                      <div key={bm.id} style={{ padding: '16px 20px', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '15px' }}>Saved Question #{idx + 1}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Bookmarked on {new Date(bm.created_at).toLocaleDateString()}</div>
                         </div>
-                        {q.explanation && (
-                          <div style={{ background: '#161822', padding: '10px 14px', borderRadius: '6px', fontSize: '13px', color: '#9ca3af', marginTop: '8px' }}>
-                            💡 <strong>Explanation:</strong> {q.explanation}
-                          </div>
-                        )}
-                        {q.quick_trick_explanation && (
-                          <div style={{ background: 'rgba(245,158,11,0.1)', padding: '10px 14px', borderRadius: '6px', fontSize: '13px', color: '#fbbf24', marginTop: '6px' }}>
-                            ⚡ <strong>Quick Trick:</strong> {q.quick_trick_explanation}
-                          </div>
-                        )}
+                        <Button variant="primary" size="sm" onClick={() => handleStartPractice('BOOKMARKED_QUESTIONS')}>
+                          Practice Now
+                        </Button>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── BOOKMARKS VIEW ── */}
-          {currentView === 'bookmarks' && (
-            <div className="bento-card">
-              <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '16px' }}>Your Saved Question Bookmarks</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {bookmarks.map((bm, i) => (
-                  <div key={bm.id} style={{ padding: '14px', background: '#12141a', borderRadius: '8px', border: '1px solid #232736', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontWeight: '600' }}>Bookmark #{i + 1} ({bm.entity_type})</div>
-                      <div style={{ fontSize: '12px', color: '#6b7280' }}>Saved on {new Date(bm.created_at).toLocaleDateString()}</div>
-                    </div>
-                    <button onClick={() => handleStartPractice('BOOKMARKED_QUESTIONS')} style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>Practice Now</button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </Card>
+              </motion.div>
+            )}
 
-          {/* ── ANALYTICS VIEW ── */}
-          {currentView === 'analytics' && dashboardData && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div className="bento-card">
-                <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '14px' }}>Competitive Exam Leaderboard</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {leaderboard.map(item => (
-                    <div key={item.rank} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: '#12141a', borderRadius: '8px', border: '1px solid #232736' }}>
-                      <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
-                        <span style={{ fontWeight: '800', color: item.rank <= 3 ? '#f59e0b' : '#9ca3af' }}>#{item.rank}</span>
-                        <span style={{ fontWeight: '600' }}>{item.username}</span>
+            {/* ── ANALYTICS VIEW ── */}
+            {currentView === 'analytics' && (
+              <motion.div key="analytics" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <Card>
+                  <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '20px' }}>TopExamX Candidate Leaderboard</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {leaderboard.map(item => (
+                      <div key={item.rank} style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px solid var(--border-default)' }}>
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 800, fontSize: '16px', color: item.rank <= 3 ? '#f59e0b' : 'var(--text-muted)' }}>#{item.rank}</span>
+                          <span style={{ fontWeight: 600 }}>{item.username}</span>
+                        </div>
+                        <div style={{ fontWeight: 700, color: '#10b981' }}>{item.score} Marks ({item.percentile}%ile)</div>
                       </div>
-                      <div style={{ fontWeight: '700', color: '#10b981' }}>{item.score} Marks ({item.percentile}%ile)</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+                    ))}
+                  </div>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
 
-      {/* ── Global Unified Search Modal (Ctrl+K) ── */}
+      {/* AI Chat Drawer Component */}
+      <AIChatDrawer isOpen={isAIDrawerOpen} onClose={() => setIsAIDrawerOpen(false)} />
+
+      {/* Global Unified Search Modal (Ctrl+K) */}
       {isSearchOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: '600px', background: '#161822', border: '1px solid #33384f', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ width: '640px', background: 'var(--bg-card)', border: '1px solid var(--border-highlight)', borderRadius: '16px', padding: '24px', boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <input
                 autoFocus
-                placeholder="Search questions, subjects, topics, exams..."
+                placeholder="Search questions, topics, exams, notes..."
                 value={searchQuery}
                 onChange={e => handleSearch(e.target.value)}
-                style={{ width: '100%', background: '#12141a', border: '1px solid #232736', padding: '12px 16px', borderRadius: '8px', color: '#fff', fontSize: '15px', outline: 'none' }}
+                style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', padding: '14px 18px', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '16px', outline: 'none' }}
               />
-              <button onClick={() => setIsSearchOpen(false)} style={{ background: 'transparent', border: 'none', color: '#9ca3af', fontSize: '20px', cursor: 'pointer', marginLeft: '12px' }}>✕</button>
+              <button onClick={() => setIsSearchOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer', marginLeft: '14px' }}>✕</button>
             </div>
 
             {searchResults && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '380px', overflowY: 'auto' }}>
                 {searchResults.questions.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '12px', color: '#818cf8', fontWeight: '700', marginBottom: '6px' }}>QUESTIONS</div>
+                    <div style={{ fontSize: '12px', color: '#818cf8', fontWeight: 700, marginBottom: '8px' }}>MATCHING QUESTIONS</div>
                     {searchResults.questions.map(q => (
-                      <div key={q.id} style={{ padding: '8px 12px', background: '#12141a', borderRadius: '6px', fontSize: '13px', marginBottom: '4px' }}>
+                      <div key={q.id} style={{ padding: '10px 14px', background: 'var(--bg-surface)', borderRadius: '8px', fontSize: '14px', marginBottom: '6px', cursor: 'pointer' }}>
                         {q.content}
                       </div>
                     ))}
@@ -555,7 +792,7 @@ export function App() {
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
