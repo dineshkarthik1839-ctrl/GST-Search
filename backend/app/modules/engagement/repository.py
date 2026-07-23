@@ -1,39 +1,48 @@
+import uuid
+from typing import Optional, List
 from sqlalchemy.orm import Session
+from sqlalchemy import select, delete
+
 from app.db.repository import BaseRepository
-from app.modules.engagement.models import Bookmark, UserProgress, StudyPlan, StudySession, Notification, UserNotification, Discussion, Comment, PhysicalActivity
+from app.modules.engagement.models import Bookmark, BookmarkType
+
 
 class BookmarkRepository(BaseRepository[Bookmark]):
     def __init__(self, db: Session):
         super().__init__(Bookmark, db)
 
-class UserProgressRepository(BaseRepository[UserProgress]):
-    def __init__(self, db: Session):
-        super().__init__(UserProgress, db)
+    def is_bookmarked(self, user_id: uuid.UUID, entity_type: BookmarkType, entity_id: uuid.UUID) -> bool:
+        return self.db.execute(
+            select(Bookmark).filter(
+                Bookmark.user_id == user_id,
+                Bookmark.entity_type == entity_type,
+                Bookmark.entity_id == entity_id,
+                Bookmark.is_deleted == False
+            )
+        ).scalar_one_or_none() is not None
 
-class StudyPlanRepository(BaseRepository[StudyPlan]):
-    def __init__(self, db: Session):
-        super().__init__(StudyPlan, db)
+    def toggle_bookmark(self, user_id: uuid.UUID, entity_type: BookmarkType, entity_id: uuid.UUID) -> bool:
+        existing = self.db.execute(
+            select(Bookmark).filter(
+                Bookmark.user_id == user_id,
+                Bookmark.entity_type == entity_type,
+                Bookmark.entity_id == entity_id,
+                Bookmark.is_deleted == False
+            )
+        ).scalar_one_or_none()
 
-class StudySessionRepository(BaseRepository[StudySession]):
-    def __init__(self, db: Session):
-        super().__init__(StudySession, db)
+        if existing:
+            self.db.delete(existing)
+            self.db.commit()
+            return False  # Removed bookmark
+        else:
+            bookmark = Bookmark(user_id=user_id, entity_type=entity_type, entity_id=entity_id)
+            self.db.add(bookmark)
+            self.db.commit()
+            return True  # Added bookmark
 
-class NotificationRepository(BaseRepository[Notification]):
-    def __init__(self, db: Session):
-        super().__init__(Notification, db)
-
-class UserNotificationRepository(BaseRepository[UserNotification]):
-    def __init__(self, db: Session):
-        super().__init__(UserNotification, db)
-
-class DiscussionRepository(BaseRepository[Discussion]):
-    def __init__(self, db: Session):
-        super().__init__(Discussion, db)
-
-class CommentRepository(BaseRepository[Comment]):
-    def __init__(self, db: Session):
-        super().__init__(Comment, db)
-
-class PhysicalActivityRepository(BaseRepository[PhysicalActivity]):
-    def __init__(self, db: Session):
-        super().__init__(PhysicalActivity, db)
+    def get_user_bookmarks(self, user_id: uuid.UUID, entity_type: Optional[BookmarkType] = None) -> List[Bookmark]:
+        stmt = select(Bookmark).filter(Bookmark.user_id == user_id, Bookmark.is_deleted == False)
+        if entity_type:
+            stmt = stmt.filter(Bookmark.entity_type == entity_type)
+        return self.db.execute(stmt.order_by(Bookmark.created_at.desc())).scalars().all()

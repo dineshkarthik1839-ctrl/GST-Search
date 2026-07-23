@@ -160,9 +160,12 @@ class QuestionBulkImportItem(BaseModel):
     question_type: QuestionType = QuestionType.MCQ
     difficulty: DifficultyLevel = DifficultyLevel.MEDIUM
     bloom_taxonomy: Optional[BloomTaxonomy] = BloomTaxonomy.UNDERSTAND
+    marks: float = 1.0
+    negative_marks: float = 0.0
     explanation: Optional[str] = None
     language: str = "en"
     source: Optional[str] = None
+    reference_book: Optional[str] = None
 
 
 class QuestionBulkImportRequest(BaseModel):
@@ -174,3 +177,72 @@ class QuestionBulkImportResponse(BaseModel):
     created: int
     skipped: int
     errors: List[str]
+
+
+# ─────────────────────── Attempt & Test Session Schemas ───────────────────
+
+class SaveAnswerRequest(BaseModel):
+    selected_option_id: Optional[uuid.UUID] = None
+    user_answer_text: Optional[str] = None
+    status: str = Field(default="ANSWERED", description="ANSWERED, MARKED_FOR_REVIEW, ANSWERED_AND_MARKED, VISITED")
+    time_spent_seconds: int = Field(default=0, ge=0)
+
+class StartPracticeRequest(BaseModel):
+    mode: str = Field(default="PRACTICE") # LEARNING, PRACTICE, TIMED_PRACTICE, WEAK_TOPIC_PRACTICE, etc.
+    subject_id: Optional[uuid.UUID] = None
+    topic_id: Optional[uuid.UUID] = None
+    num_questions: int = Field(default=10, ge=1, le=100)
+
+class AttemptQuestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    question_id: uuid.UUID
+    selected_option_id: Optional[uuid.UUID] = None
+    status: str
+    is_correct: Optional[bool] = None
+    marks_obtained: float
+    time_spent_seconds: int
+    question: Optional[QuestionResponse] = None
+
+class AttemptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    user_id: uuid.UUID
+    mock_test_id: Optional[uuid.UUID] = None
+    mode: str
+    status: str
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    time_taken_seconds: int
+    score: float
+    total_marks: float
+    accuracy_pct: float
+    speed_seconds_per_q: float
+    correct_count: int
+    wrong_count: int
+    skipped_count: int
+    attempt_questions: List[AttemptQuestionResponse] = Field(default_factory=list)
+
+class ExamResultResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    score: float
+    percentile: float
+    rank: int
+    strengths_json: Optional[List[str]] = None
+    weaknesses_json: Optional[List[str]] = None
+    recommendations_json: Optional[List[str]] = None
+
+class BookmarkToggleRequest(BaseModel):
+    entity_type: str = Field(default="QUESTION", description="QUESTION, RESOURCE")
+    entity_id: uuid.UUID
+
+class BookmarkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    user_id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    created_at: datetime
+

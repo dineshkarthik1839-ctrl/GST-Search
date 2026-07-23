@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, Integer, ForeignKey, Enum, Text, Float, Boolean, Table, Column
+from sqlalchemy import String, Integer, ForeignKey, Enum, Text, Float, Boolean, Table, Column, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from app.db.base_class import BaseEntity
@@ -189,3 +190,188 @@ class PreviousYearPaperQuestion(BaseEntity):
     
     previous_year_paper: Mapped["PreviousYearPaper"] = relationship("PreviousYearPaper", back_populates="questions", lazy="selectin")
     question: Mapped["Question"] = relationship("Question", back_populates="previous_year_paper_questions", lazy="selectin")
+
+
+# --- Epic 1 Platform Learning & Attempt Entities ---
+
+class LearningMode(str, enum.Enum):
+    LEARNING = "LEARNING"
+    PRACTICE = "PRACTICE"
+    TIMED_PRACTICE = "TIMED_PRACTICE"
+    EXAM_SIMULATION = "EXAM_SIMULATION"
+    REVISION = "REVISION"
+    WEAK_TOPIC_PRACTICE = "WEAK_TOPIC_PRACTICE"
+    BOOKMARKED_QUESTIONS = "BOOKMARKED_QUESTIONS"
+    PREVIOUS_YEAR_PRACTICE = "PREVIOUS_YEAR_PRACTICE"
+    DAILY_CHALLENGE = "DAILY_CHALLENGE"
+    MARATHON = "MARATHON"
+
+
+class QuestionMasteryStatus(str, enum.Enum):
+    NOT_ATTEMPTED = "NOT_ATTEMPTED"
+    CORRECT_ONCE = "CORRECT_ONCE"
+    CORRECT_MULTIPLE = "CORRECT_MULTIPLE"
+    INCORRECT = "INCORRECT"
+    NEEDS_REVISION = "NEEDS_REVISION"
+    MASTERED = "MASTERED"
+    BOOKMARKED = "BOOKMARKED"
+
+
+class AttemptStatus(str, enum.Enum):
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    ABANDONED = "ABANDONED"
+    PAUSED = "PAUSED"
+
+
+class AttemptQuestionStatus(str, enum.Enum):
+    UNVISITED = "UNVISITED"
+    VISITED = "VISITED"
+    ANSWERED = "ANSWERED"
+    MARKED_FOR_REVIEW = "MARKED_FOR_REVIEW"
+    ANSWERED_AND_MARKED = "ANSWERED_AND_MARKED"
+
+
+class Attempt(BaseEntity):
+    __tablename__ = "attempts"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    mock_test_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("mock_tests.id", ondelete="SET NULL"), index=True)
+    practice_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("practice_sessions.id", ondelete="SET NULL"), index=True)
+    
+    mode: Mapped[LearningMode] = mapped_column(Enum(LearningMode), default=LearningMode.EXAM_SIMULATION, index=True)
+    status: Mapped[AttemptStatus] = mapped_column(Enum(AttemptStatus), default=AttemptStatus.IN_PROGRESS, index=True)
+    
+    start_time: Mapped[datetime] = mapped_column(default=func.now())
+    end_time: Mapped[Optional[datetime]] = mapped_column()
+    time_taken_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    total_marks: Mapped[float] = mapped_column(Float, default=0.0)
+    accuracy_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    speed_seconds_per_q: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    wrong_count: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Offline sync readiness & AI-ready metadata
+    client_sync_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    ai_learning_metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    
+    attempt_questions: Mapped[List["AttemptQuestion"]] = relationship("AttemptQuestion", back_populates="attempt", cascade="all, delete-orphan", lazy="selectin")
+    exam_result: Mapped[Optional["ExamResult"]] = relationship("ExamResult", back_populates="attempt", uselist=False, lazy="selectin")
+    mock_test = relationship("MockTest", lazy="selectin")
+
+
+class AttemptQuestion(BaseEntity):
+    __tablename__ = "attempt_questions"
+    
+    attempt_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attempts.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("questions.id", ondelete="RESTRICT"), index=True)
+    selected_option_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("question_options.id", ondelete="SET NULL"))
+    user_answer_text: Mapped[Optional[str]] = mapped_column(Text)
+    
+    status: Mapped[AttemptQuestionStatus] = mapped_column(Enum(AttemptQuestionStatus), default=AttemptQuestionStatus.UNVISITED, index=True)
+    is_correct: Mapped[Optional[bool]] = mapped_column(Boolean)
+    marks_obtained: Mapped[float] = mapped_column(Float, default=0.0)
+    time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    
+    attempt: Mapped["Attempt"] = relationship("Attempt", back_populates="attempt_questions", lazy="selectin")
+    question: Mapped["Question"] = relationship("Question", lazy="selectin")
+
+
+class PracticeSession(BaseEntity):
+    __tablename__ = "practice_sessions"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"), index=True)
+    topic_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("topics.id", ondelete="SET NULL"), index=True)
+    
+    mode: Mapped[LearningMode] = mapped_column(Enum(LearningMode), default=LearningMode.PRACTICE, index=True)
+    total_questions: Mapped[int] = mapped_column(Integer, default=10)
+    status: Mapped[AttemptStatus] = mapped_column(Enum(AttemptStatus), default=AttemptStatus.IN_PROGRESS, index=True)
+
+
+class ExamResult(BaseEntity):
+    __tablename__ = "exam_results"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    exam_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("exams.id", ondelete="SET NULL"), index=True)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("attempts.id", ondelete="CASCADE"), unique=True, index=True)
+    
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    percentile: Mapped[float] = mapped_column(Float, default=0.0)
+    rank: Mapped[int] = mapped_column(Integer, default=0)
+    
+    strengths_json: Mapped[Optional[dict]] = mapped_column(JSONB) # list of strong topics
+    weaknesses_json: Mapped[Optional[dict]] = mapped_column(JSONB) # list of weak topics
+    recommendations_json: Mapped[Optional[dict]] = mapped_column(JSONB) # AI recommended study items
+    
+    attempt: Mapped["Attempt"] = relationship("Attempt", back_populates="exam_result", lazy="selectin")
+
+
+class Leaderboard(BaseEntity):
+    __tablename__ = "leaderboard"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    exam_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), index=True)
+    mock_test_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("mock_tests.id", ondelete="SET NULL"), index=True)
+    
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    rank: Mapped[int] = mapped_column(Integer, default=1)
+    percentile: Mapped[float] = mapped_column(Float, default=100.0)
+    period: Mapped[str] = mapped_column(String(50), default="ALL_TIME", index=True) # WEEKLY, MONTHLY, ALL_TIME
+    
+    user = relationship("User", lazy="selectin")
+
+
+class DailyActivity(BaseEntity):
+    __tablename__ = "daily_activity"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    activity_date: Mapped[str] = mapped_column(String(20), index=True) # YYYY-MM-DD
+    study_time_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    questions_solved: Mapped[int] = mapped_column(Integer, default=0)
+    tests_taken: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class RevisionQueue(BaseEntity):
+    __tablename__ = "revision_queue"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
+    
+    scheduled_for: Mapped[datetime] = mapped_column(index=True)
+    review_count: Mapped[int] = mapped_column(Integer, default=0)
+    interval_days: Mapped[int] = mapped_column(Integer, default=1)
+    easiness_factor: Mapped[float] = mapped_column(Float, default=2.5) # SuperMemo SM-2 factor
+    
+    question = relationship("Question", lazy="selectin")
+
+
+class QuestionMastery(BaseEntity):
+    __tablename__ = "question_mastery"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
+    
+    status: Mapped[QuestionMasteryStatus] = mapped_column(Enum(QuestionMasteryStatus), default=QuestionMasteryStatus.NOT_ATTEMPTED, index=True)
+    times_correct: Mapped[int] = mapped_column(Integer, default=0)
+    times_incorrect: Mapped[int] = mapped_column(Integer, default=0)
+    last_attempted_at: Mapped[Optional[datetime]] = mapped_column()
+
+
+class StudyStatistics(BaseEntity):
+    __tablename__ = "study_statistics"
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    total_questions_attempted: Mapped[int] = mapped_column(Integer, default=0)
+    overall_accuracy_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    current_streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    longest_streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    learning_health_score: Mapped[float] = mapped_column(Float, default=100.0) # 0-100 score
+    retention_pct: Mapped[float] = mapped_column(Float, default=85.0)
+    
+    subject_accuracy_json: Mapped[Optional[dict]] = mapped_column(JSONB)
+

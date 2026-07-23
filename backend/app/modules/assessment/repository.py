@@ -1,5 +1,6 @@
 import uuid
 import hashlib
+import math
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
@@ -54,9 +55,15 @@ class QuestionRepository(BaseRepository[Question]):
         source: Optional[str] = None,
         tag: Optional[str] = None,
         published_only: bool = False,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
         skip: int = 0,
         limit: int = 20,
     ) -> Dict[str, Any]:
+        if page is not None and page_size is not None:
+            skip = (page - 1) * page_size
+            limit = page_size
+
         stmt = select(Question).filter(Question.is_deleted == False)
 
         if q:
@@ -99,11 +106,16 @@ class QuestionRepository(BaseRepository[Question]):
             stmt.order_by(Question.created_at.desc()).offset(skip).limit(limit)
         ).scalars().all()
 
+        calc_page = (skip // limit) + 1 if limit > 0 else 1
+        total_pages = math.ceil(total / limit) if (limit > 0 and total > 0) else 1
+
         return {
             "items": items,
             "total": total,
-            "page": (skip // limit) + 1 if limit > 0 else 1,
+            "page": calc_page,
             "size": limit,
+            "page_size": limit,
+            "total_pages": total_pages,
         }
 
     def bulk_update_status(self, ids: List[uuid.UUID], new_status: QuestionStatus) -> int:
