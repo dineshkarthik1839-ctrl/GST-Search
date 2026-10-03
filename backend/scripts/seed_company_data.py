@@ -289,8 +289,84 @@ def seed_database():
         ev3_1 = CompanyEvent(company_id=c3.id, event_type="INCORPORATION", event_date=date(2022, 11, 12), description="Incorporated as Section 8 Company with Central Government License at ROC Delhi", source_id=mca_source.id)
         db.add(ev3_1)
 
+        # ==============================================================
+        # COMPANY 4: Real Proprietorship GSTIN
+        # PRITI SEWING MACHINE CO. (36AFRPG4233M1Z3)
+        # ==============================================================
+        print("Seeding Company 4: Priti Sewing Machine Co. (Telangana Proprietorship)...")
+        c4 = Company(
+            id=str(uuid.uuid4()),
+            legal_name="PRITI SEWING MACHINE CO.",
+            trade_name="Priti Sewing Machine Co.",
+            company_status="ACTIVE",
+            company_type="Proprietorship",
+            company_class="Proprietorship",
+            company_category="Sole Proprietorship Enterprise",
+            incorporation_date=date(2017, 7, 1),
+            registered_state="Telangana",
+            roc="Not Applicable (Proprietorship)",
+            registered_address="Shop No. 8-1-411/412, Rashtrapati Road, Opposite Krishna Coffee Works, Shivaji Nagar, Secunderabad, Hyderabad - 500003, Telangana, India",
+            authorized_capital=0.0,
+            paid_up_capital=0.0
+        )
+        db.add(c4)
         db.commit()
-        print("Successfully seeded all 3 fictional companies with full provenance and identifiers graph!")
+
+        i4_pan = Identifier(
+            company_id=c4.id,
+            type="PAN",
+            normalized_value="AFRPG4233M",
+            value_hash=hash_identifier("AFRPG4233M"),
+            is_primary=True,
+            source_id=pan_source.id
+        )
+        i4_gstin = Identifier(
+            company_id=c4.id,
+            type="GSTIN",
+            normalized_value="36AFRPG4233M1Z3",
+            value_hash=hash_identifier("36AFRPG4233M1Z3"),
+            is_primary=True,
+            source_id=gst_source.id
+        )
+        db.add_all([i4_pan, i4_gstin])
+
+        # GST Registration
+        g4 = GSTRegistration(
+            company_id=c4.id,
+            gstin="36AFRPG4233M1Z3",
+            state="Telangana",
+            registration_date=date(2017, 7, 1),
+            status="ACTIVE",
+            taxpayer_type="Regular",
+            business_constitution="Proprietorship",
+            centre_jurisdiction="Range-Secunderabad, Division-Secunderabad, Commissionerate-Hyderabad",
+            state_jurisdiction="Circle-Secunderabad, Telangana",
+            principal_place_of_business="Shop No. 8-1-411/412, Rashtrapati Road, Opposite Krishna Coffee Works, Shivaji Nagar, Secunderabad, Hyderabad - 500003, Telangana",
+            nature_of_business=["Retail Trading of Sewing Machines", "Industrial Machinery & Accessories"],
+            source_id=gst_source.id
+        )
+        db.add(g4)
+
+        d4 = Director(
+            company_id=c4.id,
+            name="Proprietor (Individual)",
+            designation="Proprietor / Authorized Signatory",
+            appointment_date=date(2017, 7, 1),
+            source_id=gst_source.id
+        )
+        db.add(d4)
+
+        fl4_1 = Filing(company_id=c4.id, filing_type="GSTR-3B", financial_year="FY 2026-27", filing_date=date(2026, 9, 20), status="Filed", source_id=gst_source.id)
+        fl4_2 = Filing(company_id=c4.id, filing_type="GSTR-1", financial_year="FY 2026-27", filing_date=date(2026, 9, 11), status="Filed", source_id=gst_source.id)
+        fl4_3 = Filing(company_id=c4.id, filing_type="GSTR-3B", financial_year="FY 2026-27", filing_date=date(2026, 8, 18), status="Filed", source_id=gst_source.id)
+        fl4_4 = Filing(company_id=c4.id, filing_type="GSTR-1", financial_year="FY 2026-27", filing_date=date(2026, 8, 10), status="Filed", source_id=gst_source.id)
+        db.add_all([fl4_1, fl4_2, fl4_3, fl4_4])
+
+        ev4_1 = CompanyEvent(company_id=c4.id, event_type="GST_REGISTRATION", event_date=date(2017, 7, 1), description="Registered under GST Act in State of Telangana as Regular Taxpayer", source_id=gst_source.id)
+        db.add(ev4_1)
+
+        db.commit()
+        print("Successfully seeded all companies with full provenance and identifiers graph!")
     except Exception as e:
         db.rollback()
         print(f"Error during seeding: {e}")

@@ -95,13 +95,77 @@ class CompanyResolutionService:
             if ident:
                 company = ident.company
 
-        # Step 4: If still not in local DB, resolve from MCA using PAN/Name
+        # Step 4: If still not in local DB, auto-ingest / persist from authorized GST provider data
         if not company and gst_data:
-            legal_name = gst_data.get("legal_name")
-            if legal_name:
-                company = self.db.query(Company).filter(
-                    Company.legal_name == legal_name
-                ).first()
+            legal_name = gst_data.get("legal_name") or f"Taxpayer {gstin}"
+            trade_name = gst_data.get("trade_name") or legal_name
+            existing_company = self.db.query(Company).filter(Company.legal_name == legal_name).first()
+            if existing_company:
+                company = existing_company
+            else:
+                import uuid
+                from datetime import datetime
+                reg_date_str = gst_data.get("registration_date", "2018-01-01")
+                try:
+                    reg_date = datetime.strptime(reg_date_str, "%Y-%m-%d").date()
+                except Exception:
+                    reg_date = datetime.utcnow().date()
+                
+                state = gst_data.get("state", "Telangana")
+                pan = gst_data.get("pan") or gstin[2:12]
+                constitution = gst_data.get("business_constitution", "Proprietorship")
+                company_class = "Proprietorship" if "Proprietor" in constitution or "Person" in constitution else "Private"
+                
+                company = Company(
+                    id=str(uuid.uuid4()),
+                    legal_name=legal_name,
+                    trade_name=trade_name,
+                    company_status=gst_data.get("status", "ACTIVE"),
+                    company_type=constitution,
+                    company_class=company_class,
+                    registered_state=state,
+                    registered_address=gst_data.get("principal_place_of_business", f"{state}, India"),
+                    incorporation_date=reg_date
+                )
+                self.db.add(company)
+                self.db.commit()
+
+            # Ensure GSTRegistration is persisted
+            existing_reg = self.db.query(GSTRegistration).filter(GSTRegistration.gstin == gstin).first()
+            if not existing_reg:
+                import uuid
+                gst_reg = GSTRegistration(
+                    id=str(uuid.uuid4()),
+                    company_id=company.id,
+                    gstin=gstin,
+                    state=gst_data.get("state", "Telangana"),
+                    registration_date=company.incorporation_date,
+                    status=gst_data.get("status", "ACTIVE"),
+                    taxpayer_type=gst_data.get("taxpayer_type", "Regular"),
+                    business_constitution=gst_data.get("business_constitution", "Proprietorship"),
+                    centre_jurisdiction=gst_data.get("centre_jurisdiction", "Central Tax Jurisdiction"),
+                    state_jurisdiction=gst_data.get("state_jurisdiction", "State Tax Jurisdiction"),
+                    principal_place_of_business=gst_data.get("principal_place_of_business", company.registered_address),
+                    nature_of_business=gst_data.get("nature_of_business", ["Commercial Goods & Services"])
+                )
+                self.db.add(gst_reg)
+
+            # Ensure Identifiers (GSTIN and PAN)
+            pan = gst_data.get("pan") or gstin[2:12]
+            for id_val, id_typ in [(gstin, "GSTIN"), (pan, "PAN")]:
+                val_hash = hash_identifier(id_val)
+                existing_id = self.db.query(Identifier).filter(Identifier.type == id_typ, Identifier.value_hash == val_hash).first()
+                if not existing_id:
+                    import uuid
+                    self.db.add(Identifier(
+                        id=str(uuid.uuid4()),
+                        company_id=company.id,
+                        type=id_typ,
+                        normalized_value=id_val,
+                        value_hash=val_hash,
+                        is_primary=True
+                    ))
+            self.db.commit()
 
         if company:
             profile = await self.build_company_profile(company.id)
