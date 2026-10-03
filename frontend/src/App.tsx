@@ -1,802 +1,490 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import confetti from 'canvas-confetti';
 import {
-  LayoutDashboard,
-  BookOpen,
-  FileCheck2,
-  Bookmark,
-  TrendingUp,
-  Sparkles,
-  Search,
-  Flame,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  BrainCircuit,
-  Trophy,
-  Zap,
-  RotateCcw,
-  Target,
-  ArrowRight,
+  Search, ShieldCheck, Database, Key, Award, AlertTriangle,
+  ArrowRight, Sparkles, Lock
 } from 'lucide-react';
 
-import { apiClient } from './api/client';
-import type { Attempt, StudentDashboardData, LeaderboardItem, BookmarkItem, UnifiedSearchResult } from './types/platform';
-import { Button } from './components/common/Button';
-import { Card } from './components/common/Card';
-import { Badge } from './components/common/Badge';
-import { ThemeToggle } from './components/common/ThemeToggle';
-import { AIChatDrawer } from './components/ai/AIChatDrawer';
-import './styles/theme.css';
+import type { CompanyProfile, SearchResult, SearchMatchSummary } from './types';
+import { searchCompanyAPI, getCompanyProfileAPI } from './api/client';
+import { Navbar } from './components/Navbar';
+import { SearchStepper } from './components/SearchStepper';
+import { CompanyProfileView } from './components/CompanyProfileView';
+import { AdminModal } from './components/AdminModal';
+import { CompareModal } from './components/CompareModal';
+import { WatchlistModal } from './components/WatchlistModal';
+import { ReportModal } from './components/ReportModal';
+import { LegalModal } from './components/LegalModal';
+import { AuthModal } from './components/AuthModal';
 
-type ViewMode = 'dashboard' | 'browser' | 'test' | 'result' | 'bookmarks' | 'analytics';
+export const App: React.FC = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [detectedType, setDetectedType] = useState<string>('');
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'GSTIN' | 'PAN' | 'CIN' | 'COMPANY_NAME'>('ALL');
+  
+  // Pipeline Stepper & Result State
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchStep, setSearchStep] = useState(0);
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [currentCompany, setCurrentCompany] = useState<CompanyProfile | null>(null);
 
-export function App() {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
-  const [dashboardData, setDashboardData] = useState<StudentDashboardData | null>(null);
-  const [activeAttempt, setActiveAttempt] = useState<Attempt | null>(null);
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [searchResults, setSearchResults] = useState<UnifiedSearchResult | null>(null);
-  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
-  const [isAIDrawerOpen, setIsAIDrawerOpen] = useState<boolean>(false);
-  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
-  const [timerSeconds, setTimerSeconds] = useState<number>(3600);
+  // Watchlist State
+  const [watchlist, setWatchlist] = useState<CompanyProfile[]>([]);
 
+  // Modals & Active View
+  const [activeView, setActiveView] = useState<'search' | 'compare' | 'watchlist' | 'admin' | 'sources' | 'about'>('search');
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [showWatchlistModal, setShowWatchlistModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalTab, setLegalTab] = useState<'privacy' | 'terms' | 'sources' | 'disclaimer'>('disclaimer');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Real-time Identifier Detection in Search Bar
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
-
-  useEffect(() => {
-    loadDashboard();
-    loadBookmarks();
-    loadLeaderboard();
-  }, []);
-
-  useEffect(() => {
-    let interval: any = null;
-    if (currentView === 'test' && timerSeconds > 0) {
-      interval = setInterval(() => {
-        setTimerSeconds(prev => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
+    const clean = searchQuery.trim().toUpperCase().replace(/\s+/g, '');
+    if (clean.length === 15 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(clean)) {
+      setDetectedType('GSTIN');
+    } else if (clean.length === 21 && /^([LU]{1})([0-9]{5})([A-Z]{2})([0-9]{4})([A-Z]{3})([0-9]{6})$/.test(clean)) {
+      setDetectedType('CIN');
+    } else if (clean.length === 10 && /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(clean)) {
+      setDetectedType('PAN');
+    } else if (clean.length >= 2) {
+      setDetectedType('COMPANY NAME');
+    } else {
+      setDetectedType('');
     }
-    return () => clearInterval(interval);
-  }, [currentView, timerSeconds]);
+  }, [searchQuery]);
 
-  // Global Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsSearchOpen(prev => !prev);
-      } else if (currentView === 'test' && activeAttempt) {
-        if (['1', '2', '3', '4'].includes(e.key)) {
-          const idx = parseInt(e.key) - 1;
-          const currentQ = activeAttempt.attempt_questions[activeQuestionIndex]?.question;
-          if (currentQ && currentQ.options[idx]) {
-            handleSelectOption(currentQ.options[idx].id);
-          }
-        } else if (e.key.toLowerCase() === 'n') {
-          if (activeQuestionIndex < activeAttempt.attempt_questions.length - 1) {
-            setActiveQuestionIndex(prev => prev + 1);
-          }
-        } else if (e.key.toLowerCase() === 'p') {
-          if (activeQuestionIndex > 0) {
-            setActiveQuestionIndex(prev => prev - 1);
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentView, activeAttempt, activeQuestionIndex]);
+  const executeSearch = async (queryToSearch: string) => {
+    const q = queryToSearch.trim();
+    if (!q) return;
 
-  const loadDashboard = async () => {
-    try {
-      const data = await apiClient.getDashboard();
-      setDashboardData(data);
-    } catch (e) {
-      console.error(e);
+    setIsSearching(true);
+    setSearchStep(0); // Identified
+    setSearchResult(null);
+    setCurrentCompany(null);
+
+    // Progression of real resolution pipeline
+    await new Promise(r => setTimeout(r, 120));
+    setSearchStep(1); // Validating
+    await new Promise(r => setTimeout(r, 150));
+    setSearchStep(2); // Searching DB & cache
+    await new Promise(r => setTimeout(r, 150));
+    setSearchStep(3); // Resolving identity graph
+    await new Promise(r => setTimeout(r, 120));
+    setSearchStep(4); // Loading authoritative source data
+
+    const result = await searchCompanyAPI(q);
+    setSearchStep(5); // Complete!
+    setIsSearching(false);
+    setSearchResult(result);
+
+    if (result.resolution === 'EXACT_MATCH' || result.resolution === 'HIGH_CONFIDENCE') {
+      const comp = result.companies[0] as CompanyProfile;
+      setCurrentCompany(comp);
     }
   };
 
-  const loadBookmarks = async () => {
-    try {
-      const bms = await apiClient.getBookmarks();
-      setBookmarks(bms);
-    } catch (e) {
-      console.error(e);
+  const handleSelectCompany = (comp: CompanyProfile) => {
+    setCurrentCompany(comp);
+    setShowWatchlistModal(false);
+    setShowCompareModal(false);
+    setActiveView('search');
+  };
+
+  const handleSelectCompanyById = async (companyId: string) => {
+    const profile = await getCompanyProfileAPI(companyId);
+    if (profile) {
+      setCurrentCompany(profile);
+      setActiveView('search');
     }
   };
 
-  const loadLeaderboard = async () => {
-    try {
-      const lb = await apiClient.getLeaderboard();
-      setLeaderboard(lb);
-    } catch (e) {
-      console.error(e);
+  const toggleWatchlist = (comp: CompanyProfile) => {
+    if (watchlist.some(w => w.id === comp.id)) {
+      setWatchlist(watchlist.filter(w => w.id !== comp.id));
+    } else {
+      setWatchlist([...watchlist, comp]);
     }
   };
 
-  const handleStartPractice = async (mode: string = 'PRACTICE') => {
-    try {
-      const attempt = await apiClient.startPracticeSession(mode, 10);
-      setActiveAttempt(attempt);
-      setActiveQuestionIndex(0);
-      setTimerSeconds(1800);
-      setCurrentView('test');
-    } catch (e) {
-      console.error(e);
-    }
+  const openLegal = (tab: 'privacy' | 'terms' | 'sources' | 'disclaimer') => {
+    setLegalTab(tab);
+    setShowLegalModal(true);
   };
-
-  const handleSelectOption = async (optId: string) => {
-    if (!activeAttempt) return;
-    const currentAQ = activeAttempt.attempt_questions[activeQuestionIndex];
-    if (!currentAQ) return;
-
-    const updatedAQs = [...activeAttempt.attempt_questions];
-    updatedAQs[activeQuestionIndex] = {
-      ...currentAQ,
-      selected_option_id: optId,
-      status: 'ANSWERED',
-    };
-
-    setActiveAttempt({
-      ...activeAttempt,
-      attempt_questions: updatedAQs,
-    });
-
-    await apiClient.saveAnswer(activeAttempt.id, currentAQ.question_id, optId, 'ANSWERED', 15);
-  };
-
-  const handleMarkForReview = async () => {
-    if (!activeAttempt) return;
-    const currentAQ = activeAttempt.attempt_questions[activeQuestionIndex];
-    if (!currentAQ) return;
-
-    const newStatus = currentAQ.selected_option_id ? 'ANSWERED_AND_MARKED' : 'MARKED_FOR_REVIEW';
-    const updatedAQs = [...activeAttempt.attempt_questions];
-    updatedAQs[activeQuestionIndex] = {
-      ...currentAQ,
-      status: newStatus,
-    };
-
-    setActiveAttempt({
-      ...activeAttempt,
-      attempt_questions: updatedAQs,
-    });
-
-    await apiClient.saveAnswer(activeAttempt.id, currentAQ.question_id, currentAQ.selected_option_id, newStatus, 10);
-  };
-
-  const handleToggleBookmark = async () => {
-    if (!activeAttempt) return;
-    const currentQ = activeAttempt.attempt_questions[activeQuestionIndex]?.question;
-    if (!currentQ) return;
-
-    await apiClient.toggleBookmark(currentQ.id, 'QUESTION');
-    loadBookmarks();
-  };
-
-  const handleSubmitTest = async () => {
-    if (!activeAttempt) return;
-    try {
-      const completed = await apiClient.submitAttempt(activeAttempt.id);
-      setActiveAttempt(completed);
-      setCurrentView('result');
-      loadDashboard();
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 },
-      });
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleSearch = async (q: string) => {
-    setSearchQuery(q);
-    if (q.trim().length >= 2) {
-      const res = await apiClient.searchUnified(q);
-      setSearchResults(res);
-    }
-  };
-
-  const formatTimer = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const currentAQ = activeAttempt?.attempt_questions[activeQuestionIndex];
-  const currentQ = currentAQ?.question;
 
   return (
-    <div style={{ display: 'flex', width: '100%', minHeight: '100vh', background: 'var(--bg-app)', color: 'var(--text-primary)' }}>
-      {/* ── Silicon Valley Sidebar Navigation ── */}
-      <aside style={{ width: '270px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-default)', padding: '24px 18px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="gradient-text-ai">TopExamX</span>
-              <Badge variant="ai">PRO AI</Badge>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* 1. Top Navbar */}
+      <Navbar
+        onNavClick={(view) => {
+          if (view === 'admin') setShowAdminModal(true);
+          else if (view === 'compare') {
+            if (currentCompany) setShowCompareModal(true);
+            else executeSearch('ABC Technologies').then(() => setShowCompareModal(true));
+          } else if (view === 'watchlist') setShowWatchlistModal(true);
+          else if (view === 'sources') openLegal('sources');
+          else if (view === 'about') openLegal('disclaimer');
+          else setActiveView('search');
+        }}
+        currentView={activeView}
+        watchlistCount={watchlist.length}
+        onOpenAuth={() => setShowAuthModal(true)}
+      />
+
+      {/* Main Container */}
+      <main style={{ maxWidth: '1240px', width: '100%', margin: '0 auto', padding: '0 20px 60px 20px', flex: 1 }}>
+        {/* 2. Hero Search Header */}
+        <section style={{ textAlign: 'center', margin: '36px 0 28px 0' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 14px',
+            borderRadius: '9999px',
+            background: 'rgba(56, 189, 248, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            color: 'var(--brand-primary)',
+            fontSize: '12px',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            marginBottom: '16px'
+          }}>
+            <ShieldCheck size={15} />
+            INDIAN CORPORATE INTELLIGENCE & VERIFICATION
+          </div>
+
+          <h1 style={{ fontSize: '42px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.15, color: '#ffffff', maxWidth: '820px', margin: '0 auto' }}>
+            Know the Company Behind the Number.
+          </h1>
+          <p style={{ fontSize: '17px', color: 'var(--text-secondary)', maxWidth: '640px', margin: '14px auto 28px auto' }}>
+            Search Indian companies using GSTIN, PAN, CIN or company name with source-backed official records.
+          </p>
+
+          {/* Search Box Card */}
+          <div className="glass-panel" style={{ maxWidth: '780px', margin: '0 auto', padding: '16px 20px', boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)' }}>
+            {/* Filter Pills */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', overflowX: 'auto' }}>
+              {(['ALL', 'GSTIN', 'PAN', 'CIN', 'COMPANY_NAME'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setSelectedFilter(f)}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: '6px',
+                    border: `1px solid ${selectedFilter === f ? 'var(--brand-primary)' : 'var(--border-color)'}`,
+                    background: selectedFilter === f ? 'rgba(56, 189, 248, 0.15)' : 'var(--bg-surface)',
+                    color: selectedFilter === f ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)'
+                  }}
+                >
+                  {f.replace('_', ' ')}
+                </button>
+              ))}
+
+              {detectedType && (
+                <span style={{
+                  marginLeft: 'auto',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: 'var(--emerald)',
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid rgba(16, 185, 129, 0.3)'
+                }}>
+                  <Sparkles size={12} />
+                  {detectedType} DETECTED
+                </span>
+              )}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Question Intelligence Platform</div>
-          </div>
-        </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <button
-            onClick={() => setCurrentView('dashboard')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '11px 14px',
-              borderRadius: '10px',
-              background: currentView === 'dashboard' ? 'var(--primary-glow)' : 'transparent',
-              color: currentView === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)',
-              border: currentView === 'dashboard' ? '1px solid var(--border-highlight)' : '1px solid transparent',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <LayoutDashboard size={18} /> Dashboard
-          </button>
+            {/* Input & Search Button */}
+            <form onSubmit={(e) => { e.preventDefault(); executeSearch(searchQuery); }} style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '14px' }} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Enter GSTIN, PAN, CIN or company name..."
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px 12px 42px',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '10px',
+                    color: 'var(--text-primary)',
+                    fontSize: '15px',
+                    fontFamily: 'var(--font-sans)',
+                    outline: 'none'
+                  }}
+                />
+              </div>
 
-          <button
-            onClick={() => setCurrentView('browser')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '11px 14px',
-              borderRadius: '10px',
-              background: currentView === 'browser' ? 'var(--primary-glow)' : 'transparent',
-              color: currentView === 'browser' ? 'var(--primary)' : 'var(--text-secondary)',
-              border: currentView === 'browser' ? '1px solid var(--border-highlight)' : '1px solid transparent',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <BookOpen size={18} /> Syllabus & Exams
-          </button>
+              <button
+                type="submit"
+                style={{
+                  padding: '0 24px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
+                }}
+              >
+                Search
+                <ArrowRight size={16} />
+              </button>
+            </form>
 
-          <button
-            onClick={() => handleStartPractice('PRACTICE')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '11px 14px',
-              borderRadius: '10px',
-              background: currentView === 'test' ? 'var(--primary-glow)' : 'transparent',
-              color: currentView === 'test' ? 'var(--primary)' : 'var(--text-secondary)',
-              border: currentView === 'test' ? '1px solid var(--border-highlight)' : '1px solid transparent',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <FileCheck2 size={18} /> Test Engine
-          </button>
-
-          <button
-            onClick={() => setCurrentView('bookmarks')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '11px 14px',
-              borderRadius: '10px',
-              background: currentView === 'bookmarks' ? 'var(--primary-glow)' : 'transparent',
-              color: currentView === 'bookmarks' ? 'var(--primary)' : 'var(--text-secondary)',
-              border: currentView === 'bookmarks' ? '1px solid var(--border-highlight)' : '1px solid transparent',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Bookmark size={18} /> Saved ({bookmarks.length})
-          </button>
-
-          <button
-            onClick={() => setCurrentView('analytics')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '11px 14px',
-              borderRadius: '10px',
-              background: currentView === 'analytics' ? 'var(--primary-glow)' : 'transparent',
-              color: currentView === 'analytics' ? 'var(--primary)' : 'var(--text-secondary)',
-              border: currentView === 'analytics' ? '1px solid var(--border-highlight)' : '1px solid transparent',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '14px',
-              textAlign: 'left',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <TrendingUp size={18} /> Analytics & Mastery
-          </button>
-        </nav>
-
-        {/* AI Tutor Callout Widget */}
-        <div style={{ marginTop: 'auto', background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%)', border: '1px solid rgba(192, 132, 252, 0.3)', padding: '16px', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, color: '#c084fc' }}>
-            <Sparkles size={16} /> AI Tutor Connected
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Instant answers, quick tricks & concept breakdowns.</div>
-          <Button variant="ai" size="sm" onClick={() => setIsAIDrawerOpen(true)} leftIcon={<Zap size={14} />}>
-            Ask AI Tutor
-          </Button>
-        </div>
-      </aside>
-
-      {/* ── Main App Content ── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        {/* Top Floating App Bar */}
-        <header style={{ height: '68px', background: 'var(--bg-glass)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--border-default)', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-          <button
-            onClick={() => setIsSearchOpen(true)}
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-default)',
-              padding: '8px 16px',
-              borderRadius: '10px',
-              color: 'var(--text-muted)',
-              fontSize: '13px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              width: '340px',
-            }}
-          >
-            <Search size={16} />
-            <span>Search questions, topics, exams...</span>
-            <kbd style={{ background: 'var(--bg-card)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', color: 'var(--text-secondary)', marginLeft: 'auto' }}>Ctrl+K</kbd>
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <Badge variant="success" icon={<CheckCircle2 size={12} />}>Telangana Police 2026</Badge>
-            <ThemeToggle theme={theme} onToggle={() => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))} />
-            <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '14px', color: '#fff', boxShadow: 'var(--shadow-glow)' }}>
-              DK
+            {/* Quick Suggestions Chips */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--text-muted)' }}>
+              <span>Try Examples:</span>
+              <button
+                onClick={() => { setSearchQuery('27ABCDE1234F1Z5'); executeSearch('27ABCDE1234F1Z5'); }}
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', color: 'var(--brand-primary)', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+              >
+                GSTIN: 27ABCDE1234F1Z5
+              </button>
+              <button
+                onClick={() => { setSearchQuery('U60200TN2020PTC098765'); executeSearch('U60200TN2020PTC098765'); }}
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', color: 'var(--brand-primary)', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+              >
+                CIN: U60200TN2020PTC098765
+              </button>
+              <button
+                onClick={() => { setSearchQuery('AAACH5432R'); executeSearch('AAACH5432R'); }}
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', color: 'var(--brand-primary)', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+              >
+                PAN: AAACH5432R
+              </button>
+              <button
+                onClick={() => { setSearchQuery('ABC Technologies'); executeSearch('ABC Technologies'); }}
+                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer' }}
+              >
+                Name: ABC Technologies
+              </button>
             </div>
           </div>
-        </header>
 
-        {/* View Content Area */}
-        <div style={{ padding: '32px', flex: 1 }}>
-          <AnimatePresence mode="wait">
-            {/* ── BENTO DASHBOARD VIEW ── */}
-            {currentView === 'dashboard' && dashboardData && (
-              <motion.div
-                key="dashboard"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.2 }}
-                style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em' }}>
-                      Welcome back, <span className="gradient-text-ai">Dinesh</span>
-                    </h1>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-                      Target: Telangana Police Constable & Sub-Inspector Recruitment Prelims 2026
-                    </p>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '12px' }}>
+            Information is compiled from connected official, government, authorized and licensed sources. Availability varies by source.
+          </p>
+        </section>
+
+        {/* 3. Real Request Execution Stepper */}
+        {isSearching && (
+          <SearchStepper currentStep={searchStep} detectedType={detectedType} />
+        )}
+
+        {/* 4. Display Active Company Profile */}
+        {currentCompany && !isSearching && (
+          <div style={{ marginTop: '20px' }}>
+            <CompanyProfileView
+              company={currentCompany}
+              isSaved={watchlist.some(w => w.id === currentCompany.id)}
+              onToggleWatchlist={() => toggleWatchlist(currentCompany)}
+              onOpenCompare={() => setShowCompareModal(true)}
+              onOpenReport={() => setShowReportModal(true)}
+            />
+          </div>
+        )}
+
+        {/* 5. Multiple Fuzzy Matches View */}
+        {searchResult && searchResult.resolution === 'POSSIBLE_MATCH' && !isSearching && (
+          <div style={{ marginTop: '24px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px' }}>
+              Possible Matching Companies ({searchResult.companies.length})
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+              {(searchResult.companies as SearchMatchSummary[]).map((match) => (
+                <div key={match.id} className="bento-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {match.legal_name}
+                    </h3>
+                    <span className="status-pill status-active" style={{ fontSize: '10px' }}>
+                      {match.company_status}
+                    </span>
                   </div>
-                  <Button variant="primary" size="lg" onClick={() => handleStartPractice('EXAM_SIMULATION')} rightIcon={<ArrowRight size={18} />}>
-                    Launch Full Mock Test
-                  </Button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <div>CIN: <strong style={{ color: 'var(--brand-primary)', fontFamily: 'var(--font-mono)' }}>{match.cin}</strong></div>
+                    <div>State: {match.registered_state}</div>
+                    <div>GST Registrations: {match.gst_count} State Registrations</div>
+                    <div>Sources: {match.sources.join(', ')}</div>
+                  </div>
+                  <button
+                    onClick={() => handleSelectCompanyById(match.id)}
+                    style={{
+                      marginTop: '16px',
+                      width: '100%',
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: 'rgba(56, 189, 248, 0.12)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      color: 'var(--brand-primary)',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    View Company Profile
+                    <ArrowRight size={14} />
+                  </button>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                {/* Bento Grid Metrics Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-                  <Card glow="emerald">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Overall Accuracy</span>
-                      <Target size={18} color="#10b981" />
-                    </div>
-                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#10b981', marginTop: '10px' }}>{dashboardData.overall_accuracy_pct}%</div>
-                    <Badge variant="success" style={{ marginTop: '10px' }}>Top 5% Rank</Badge>
-                  </Card>
+        {/* 6. Unresolved / Not Found State */}
+        {searchResult && searchResult.resolution === 'UNRESOLVED' && !isSearching && (
+          <div className="bento-card" style={{ marginTop: '24px', padding: '40px 20px', textAlign: 'center' }}>
+            <AlertTriangle size={36} color="var(--amber)" style={{ margin: '0 auto 12px auto' }} />
+            <h3 style={{ fontSize: '18px', fontWeight: 700 }}>No Relationship Established</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '520px', margin: '8px auto 0 auto' }}>
+              {searchResult.message || "We validated the identifier, but no company relationship could be established from connected authoritative sources."}
+            </p>
+          </div>
+        )}
 
-                  <Card glow="indigo">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Learning Health Score</span>
-                      <BrainCircuit size={18} color="#818cf8" />
-                    </div>
-                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#818cf8', marginTop: '10px' }}>{dashboardData.learning_health_score}/100</div>
-                    <Badge variant="primary" style={{ marginTop: '10px' }}>SM-2 Optimized</Badge>
-                  </Card>
+        {/* 7. Trust & Architectural Principles Section */}
+        {!currentCompany && !isSearching && (
+          <div style={{ marginTop: '60px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                Built on Verified Institutional Foundations
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginTop: '6px' }}>
+                Zero scraping • Zero artificial turnover estimates • Complete cryptographic provenance
+              </p>
+            </div>
 
-                  <Card glow="amber">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revision Queue</span>
-                      <RotateCcw size={18} color="#f59e0b" />
-                    </div>
-                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#f59e0b', marginTop: '10px' }}>{dashboardData.revision_due_count} Items</div>
-                    <button onClick={() => handleStartPractice('REVISION')} style={{ background: 'none', border: 'none', color: '#fbbf24', fontSize: '13px', fontWeight: 700, cursor: 'pointer', padding: 0, marginTop: '8px' }}>
-                      Start Spaced Revision →
-                    </button>
-                  </Card>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+              <div className="bento-card">
+                <Database size={24} color="var(--brand-primary)" style={{ marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>Official Open Data</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  Direct ingestion of MCA Company Master Data via data.gov.in. CIN, incorporation dates, authorized capital, ROC jurisdictions.
+                </p>
+              </div>
 
-                  <Card glow="cyan">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Study Streak</span>
-                      <Flame size={18} color="#ef4444" />
-                    </div>
-                    <div style={{ fontSize: '32px', fontWeight: 800, color: '#f87171', marginTop: '10px' }}>7 Days 🔥</div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', display: 'block' }}>Streak Goal: 14 Days</span>
-                  </Card>
-                </div>
+              <div className="bento-card">
+                <Key size={24} color="var(--emerald)" style={{ marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>Authorized GST Ecosystem</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  Connected through approved GSPs. Multi-state registration graph, jurisdictions, principal place of business, and return filing history.
+                </p>
+              </div>
 
-                {/* Subject Mastery & Recommendations */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
-                  <Card>
-                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Subject Mastery & Accuracy Breakdown</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                      {Object.entries(dashboardData.subject_accuracy).map(([subject, accuracy]) => (
-                        <div key={subject}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px' }}>
-                            <span style={{ fontWeight: 600 }}>{subject}</span>
-                            <span style={{ fontWeight: 700, color: accuracy >= 80 ? '#10b981' : '#f59e0b' }}>{accuracy}% Accuracy</span>
-                          </div>
-                          <div style={{ height: '10px', background: 'var(--bg-surface)', borderRadius: '9999px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${accuracy}%` }}
-                              transition={{ duration: 0.8, ease: 'easeOut' }}
-                              style={{
-                                height: '100%',
-                                background: accuracy >= 80 ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)' : 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)',
-                                borderRadius: '9999px',
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
+              <div className="bento-card">
+                <Lock size={24} color="var(--amber)" style={{ marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>PAN Security & Hashing</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  Never exposed in URLs or raw logs. Internal matching uses SHA-256 hashes, strictly verifying corporate existence without personal tax access.
+                </p>
+              </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <Card glow="amber">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>
-                        <AlertTriangle size={16} /> WEAK TOPICS DETECTED
-                      </div>
-                      <h4 style={{ fontSize: '15px', fontWeight: 700 }}>Geography of Telangana & Physical Geography</h4>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '8px 0 16px 0' }}>Current accuracy is 45%. Solve targeted weak topic questions to boost exam score.</p>
-                      <Button variant="danger" size="sm" onClick={() => handleStartPractice('WEAK_TOPIC_PRACTICE')}>
-                        Practice Weak Topics
-                      </Button>
-                    </Card>
-
-                    <Card>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>
-                        <Clock size={16} /> EXAM COUNTDOWN
-                      </div>
-                      <div style={{ fontSize: '24px', fontWeight: 800 }}>42 Days Left</div>
-                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>Telangana Police Constable Prelims 2026</div>
-                    </Card>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── QUESTION TEST SCREEN ── */}
-            {currentView === 'test' && activeAttempt && currentQ && (
-              <motion.div
-                key="test"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.2 }}
-                style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '24px', height: 'calc(100vh - 140px)' }}
-              >
-                {/* Question Container */}
-                <Card style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div>
-                    {/* Header Controls */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-default)', paddingBottom: '16px', marginBottom: '24px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <Badge variant="primary">{activeAttempt.mode}</Badge>
-                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                          Question {activeQuestionIndex + 1} of {activeAttempt.attempt_questions.length}
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', fontWeight: 800, color: timerSeconds < 300 ? '#ef4444' : '#f59e0b', background: 'var(--bg-surface)', padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
-                          ⏱ {formatTimer(timerSeconds)}
-                        </div>
-                        <Button variant="outline" size="sm" onClick={handleToggleBookmark}>
-                          <Bookmark size={14} /> Save Question
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Question Content */}
-                    <h2 style={{ fontSize: '19px', fontWeight: 600, lineHeight: 1.6, marginBottom: '28px' }}>
-                      {currentQ.content}
-                    </h2>
-
-                    {/* Options Grid */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {currentQ.options.map((opt, idx) => {
-                        const isSelected = currentAQ?.selected_option_id === opt.id;
-                        return (
-                          <motion.div
-                            key={opt.id}
-                            whileHover={{ x: 3 }}
-                            onClick={() => handleSelectOption(opt.id)}
-                            style={{
-                              padding: '16px 20px',
-                              borderRadius: '12px',
-                              border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-default)',
-                              background: isSelected ? 'var(--primary-glow)' : 'var(--bg-surface)',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '16px',
-                              transition: 'border-color 0.15s ease',
-                            }}
-                          >
-                            <div
-                              style={{
-                                width: '28px',
-                                height: '28px',
-                                borderRadius: '50%',
-                                border: isSelected ? '2px solid var(--primary)' : '1px solid var(--text-muted)',
-                                background: isSelected ? 'var(--primary)' : 'transparent',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '13px',
-                                fontWeight: 700,
-                                color: isSelected ? '#ffffff' : 'var(--text-secondary)',
-                              }}
-                            >
-                              {String.fromCharCode(65 + idx)}
-                            </div>
-                            <div style={{ fontSize: '15px', color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: isSelected ? 600 : 400 }}>
-                              {opt.content}
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Test Navigation Bar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-default)', paddingTop: '20px', marginTop: '24px' }}>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <Button
-                        variant="secondary"
-                        disabled={activeQuestionIndex === 0}
-                        onClick={() => setActiveQuestionIndex(prev => prev - 1)}
-                      >
-                        ← Previous (P)
-                      </Button>
-                      <Button variant="outline" onClick={handleMarkForReview}>
-                        🔖 Mark Review
-                      </Button>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <Button
-                        variant="secondary"
-                        disabled={activeQuestionIndex === activeAttempt.attempt_questions.length - 1}
-                        onClick={() => setActiveQuestionIndex(prev => prev + 1)}
-                      >
-                        Next → (N)
-                      </Button>
-                      <Button variant="primary" onClick={handleSubmitTest}>
-                        Submit Test
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Question Palette Drawer */}
-                <Card style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Question Palette</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', maxHeight: '380px', overflowY: 'auto' }}>
-                    {activeAttempt.attempt_questions.map((aq, idx) => {
-                      let statusClass = 'unvisited';
-                      if (aq.status === 'ANSWERED') statusClass = 'answered';
-                      if (aq.status === 'MARKED_FOR_REVIEW') statusClass = 'marked';
-                      if (aq.status === 'ANSWERED_AND_MARKED') statusClass = 'answered-marked';
-
-                      return (
-                        <button
-                          key={aq.id}
-                          onClick={() => setActiveQuestionIndex(idx)}
-                          className={`palette-btn ${statusClass} ${activeQuestionIndex === idx ? 'active' : ''}`}
-                        >
-                          {idx + 1}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#10b981' }}></div> Answered
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#f59e0b' }}></div> Marked for Review
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#6366f1' }}></div> Answered & Marked
-                    </div>
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-
-            {/* ── RESULT & PERFORMANCE REPORT VIEW ── */}
-            {currentView === 'result' && activeAttempt && (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -15 }}
-                transition={{ duration: 0.2 }}
-                style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}
-              >
-                <Card glow="emerald" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(16,185,129,0.15) 100%)', padding: '36px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <Badge variant="success" icon={<Trophy size={14} />}>Attempt Submitted & Auto-Graded</Badge>
-                      <h1 style={{ fontSize: '36px', fontWeight: 800, margin: '12px 0 6px 0' }}>Score: {activeAttempt.score} / {activeAttempt.total_marks}</h1>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>
-                        Accuracy: <strong>{activeAttempt.accuracy_pct}%</strong> • Average Speed: <strong>{activeAttempt.speed_seconds_per_q}s</strong> / question
-                      </p>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '42px', fontWeight: 800, color: '#10b981' }}>98.5th</div>
-                      <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Candidate Percentile Rank</div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Question-by-Question Breakdown */}
-                <Card>
-                  <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px' }}>Question-by-Question Performance Review</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                    {activeAttempt.attempt_questions.map((aq, idx) => {
-                      const q = aq.question;
-                      if (!q) return null;
-                      return (
-                        <div key={aq.id} style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: aq.is_correct ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(239,68,68,0.3)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <span style={{ fontSize: '16px', fontWeight: 700 }}>Q{idx + 1}. {q.content}</span>
-                            <Badge variant={aq.is_correct ? 'success' : 'danger'}>
-                              {aq.is_correct ? `+${q.marks} Marks` : `-${q.negative_marks} Marks`}
-                            </Badge>
-                          </div>
-
-                          {q.explanation && (
-                            <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.6 }}>
-                              💡 <strong>Detailed Explanation:</strong> {q.explanation}
-                            </div>
-                          )}
-
-                          {q.quick_trick_explanation && (
-                            <div style={{ background: 'rgba(245,158,11,0.1)', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', color: '#fbbf24', marginTop: '8px', border: '1px solid rgba(245,158,11,0.3)' }}>
-                              ⚡ <strong>Quick Trick Mnemonic:</strong> {q.quick_trick_explanation}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-
-            {/* ── BOOKMARKS VIEW ── */}
-            {currentView === 'bookmarks' && (
-              <motion.div key="bookmarks" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <Card>
-                  <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '20px' }}>Saved Question Bookmarks</h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {bookmarks.map((bm, idx) => (
-                      <div key={bm.id} style={{ padding: '16px 20px', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '15px' }}>Saved Question #{idx + 1}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Bookmarked on {new Date(bm.created_at).toLocaleDateString()}</div>
-                        </div>
-                        <Button variant="primary" size="sm" onClick={() => handleStartPractice('BOOKMARKED_QUESTIONS')}>
-                          Practice Now
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-
-            {/* ── ANALYTICS VIEW ── */}
-            {currentView === 'analytics' && (
-              <motion.div key="analytics" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <Card>
-                  <h2 style={{ fontSize: '22px', fontWeight: 700, marginBottom: '20px' }}>TopExamX Candidate Leaderboard</h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {leaderboard.map(item => (
-                      <div key={item.rank} style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px solid var(--border-default)' }}>
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 800, fontSize: '16px', color: item.rank <= 3 ? '#f59e0b' : 'var(--text-muted)' }}>#{item.rank}</span>
-                          <span style={{ fontWeight: 600 }}>{item.username}</span>
-                        </div>
-                        <div style={{ fontWeight: 700, color: '#10b981' }}>{item.score} Marks ({item.percentile}%ile)</div>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+              <div className="bento-card">
+                <Award size={24} color="var(--violet)" style={{ marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>Audited Financial Statements</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  Audited statement revenue is never conflated with GST turnover. If financial statements are unverified, we explicitly mark them unavailable.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* AI Chat Drawer Component */}
-      <AIChatDrawer isOpen={isAIDrawerOpen} onClose={() => setIsAIDrawerOpen(false)} />
-
-      {/* Global Unified Search Modal (Ctrl+K) */}
-      {isSearchOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ width: '640px', background: 'var(--bg-card)', border: '1px solid var(--border-highlight)', borderRadius: '16px', padding: '24px', boxShadow: 'var(--shadow-lg)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <input
-                autoFocus
-                placeholder="Search questions, topics, exams, notes..."
-                value={searchQuery}
-                onChange={e => handleSearch(e.target.value)}
-                style={{ width: '100%', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', padding: '14px 18px', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '16px', outline: 'none' }}
-              />
-              <button onClick={() => setIsSearchOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '20px', cursor: 'pointer', marginLeft: '14px' }}>✕</button>
+      {/* 8. Footer */}
+      <footer style={{
+        borderTop: '1px solid var(--border-color)',
+        padding: '32px 24px',
+        background: 'var(--bg-primary)',
+        marginTop: 'auto'
+      }}>
+        <div style={{ maxWidth: '1240px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '16px' }}>
+              <ShieldCheck size={18} color="var(--brand-primary)" />
+              COMPANYLENS
             </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Authoritative Indian corporate intelligence and identifier resolution platform.
+            </p>
+          </div>
 
-            {searchResults && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '380px', overflowY: 'auto' }}>
-                {searchResults.questions.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '12px', color: '#818cf8', fontWeight: 700, marginBottom: '8px' }}>MATCHING QUESTIONS</div>
-                    {searchResults.questions.map(q => (
-                      <div key={q.id} style={{ padding: '10px 14px', background: 'var(--bg-surface)', borderRadius: '8px', fontSize: '14px', marginBottom: '6px', cursor: 'pointer' }}>
-                        {q.content}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </motion.div>
+          <div style={{ display: 'flex', gap: '18px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+            <button onClick={() => openLegal('disclaimer')} style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+              Disclaimer
+            </button>
+            <button onClick={() => openLegal('sources')} style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+              Sources
+            </button>
+            <button onClick={() => openLegal('privacy')} style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+              Privacy & PAN Policy
+            </button>
+            <button onClick={() => openLegal('terms')} style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+              Terms of Use
+            </button>
+          </div>
         </div>
+      </footer>
+
+      {/* Modals */}
+      {showAdminModal && <AdminModal onClose={() => setShowAdminModal(false)} />}
+      {showCompareModal && currentCompany && (
+        <CompareModal
+          currentCompany={currentCompany}
+          allCompanies={watchlist.length > 0 ? [currentCompany, ...watchlist] : [currentCompany]}
+          onClose={() => setShowCompareModal(false)}
+          onSelectCompany={handleSelectCompany}
+        />
+      )}
+      {showWatchlistModal && (
+        <WatchlistModal
+          watchlist={watchlist}
+          onRemove={(id) => setWatchlist(watchlist.filter(w => w.id !== id))}
+          onSelect={handleSelectCompany}
+          onClose={() => setShowWatchlistModal(false)}
+        />
+      )}
+      {showReportModal && currentCompany && (
+        <ReportModal
+          company={currentCompany}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
+      {showLegalModal && (
+        <LegalModal
+          initialTab={legalTab}
+          onClose={() => setShowLegalModal(false)}
+        />
+      )}
+      {showAuthModal && (
+        <AuthModal onClose={() => setShowAuthModal(false)} />
       )}
     </div>
   );
-}
+};
 
 export default App;

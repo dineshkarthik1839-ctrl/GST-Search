@@ -157,6 +157,8 @@ class ContentItemListResponse(BaseModel):
     total: int
     page: int
     size: int
+    page_size: int = 20
+    total_pages: int = 1
 
 
 # ─────────────────────── Revision & Audit Schemas ────────────────────────

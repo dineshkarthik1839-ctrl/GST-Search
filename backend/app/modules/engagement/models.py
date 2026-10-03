@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional
-from sqlalchemy import String, Integer, ForeignKey, Float, Enum, Text
+from sqlalchemy import String, Integer, ForeignKey, Float, Enum, Text, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import BaseEntity
 import enum
@@ -76,3 +76,19 @@ class PhysicalActivity(BaseEntity):
     activity_type: Mapped[str] = mapped_column(String(100))
     value: Mapped[Float] = mapped_column(Float)
     unit: Mapped[str] = mapped_column(String(50))
+
+
+class ExamNotification(BaseEntity):
+    """
+    Tracks official Govt recruitment notifications, hall ticket releases & calendar dates.
+    """
+    __tablename__ = "exam_notifications"
+    exam_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"), index=True, nullable=True)
+    title: Mapped[str] = mapped_column(String(255))
+    notification_type: Mapped[str] = mapped_column(String(100), default="OFFICIAL_NOTIFICATION_PDF")
+    official_pdf_url: Mapped[Optional[str]] = mapped_column(String(500))
+    application_start_date: Mapped[Optional[str]] = mapped_column(DateTime(timezone=True))
+    application_end_date: Mapped[Optional[str]] = mapped_column(DateTime(timezone=True))
+    exam_date: Mapped[Optional[str]] = mapped_column(DateTime(timezone=True), index=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+

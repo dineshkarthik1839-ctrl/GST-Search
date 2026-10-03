@@ -163,3 +163,32 @@ class ExamCurrentAffair(BaseEntity):
     
     exam = relationship("Exam", back_populates="current_affairs", lazy="selectin")
     content_item: Mapped["ContentItem"] = relationship("ContentItem", back_populates="exam_mappings", lazy="selectin")
+
+
+class UserResourceProgress(BaseEntity):
+    """
+    Tracks student's 'Continue Learning' reading & watching progress.
+    """
+    __tablename__ = "user_resource_progress"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id", ondelete="CASCADE"), index=True)
+    last_page_read: Mapped[int] = mapped_column(Integer, default=1)
+    video_timestamp_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    completion_pct: Mapped[Float] = mapped_column(Float, default=0.0)
+    last_accessed_at: Mapped[Optional[str]] = mapped_column(DateTime(timezone=True), index=True)
+
+    content_item: Mapped["ContentItem"] = relationship("ContentItem", lazy="selectin")
+
+
+class ResourceDownload(BaseEntity):
+    """
+    Tracks offline downloaded resources for mobile/web app.
+    """
+    __tablename__ = "resource_downloads"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id", ondelete="CASCADE"), index=True)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    download_status: Mapped[str] = mapped_column(String(50), default="COMPLETED")
+
+    content_item: Mapped["ContentItem"] = relationship("ContentItem", lazy="selectin")
+

@@ -29,7 +29,7 @@ class ContentRepository(BaseRepository[ContentItem]):
                 ContentItem.slug == slug,
                 ContentItem.is_deleted == False
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
 
     def search(
         self,
@@ -40,9 +40,16 @@ class ContentRepository(BaseRepository[ContentItem]):
         language: Optional[str] = None,
         author_id: Optional[uuid.UUID] = None,
         published_only: bool = False,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None,
         skip: int = 0,
         limit: int = 20,
     ) -> Dict[str, Any]:
+        import math
+        if page is not None and page_size is not None:
+            skip = (page - 1) * page_size
+            limit = page_size
+
         stmt = select(ContentItem).filter(ContentItem.is_deleted == False)
 
         if q:
@@ -75,11 +82,16 @@ class ContentRepository(BaseRepository[ContentItem]):
             stmt.order_by(ContentItem.created_at.desc()).offset(skip).limit(limit)
         ).scalars().all()
 
+        calc_page = (skip // limit) + 1 if limit > 0 else 1
+        total_pages = math.ceil(total / limit) if (limit > 0 and total > 0) else 1
+
         return {
             "items": items,
             "total": total,
-            "page": (skip // limit) + 1 if limit > 0 else 1,
+            "page": calc_page,
             "size": limit,
+            "page_size": limit,
+            "total_pages": total_pages,
         }
 
     def get_due_for_publish(self) -> List[ContentItem]:

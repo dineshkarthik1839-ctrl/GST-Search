@@ -1,53 +1,68 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.security import sanitize_log_message
+from app.db.session import engine
 from app.db.metadata import Base
-from app.core.middlewares import RequestIDMiddleware, RequestLoggingMiddleware
-from app.core.exceptions import AppException, app_exception_handler, global_exception_handler
-from app.api import health
+from app.api.v1.router import router as api_v1_router
+try:
+    from scripts.seed_company_data import seed_database
+except ImportError:
+    seed_database = None
 
 app = FastAPI(
-    title=settings.project_name,
-    openapi_url=f"{settings.api_v1_str}/openapi.json",
+    title="CompanyLens API Gateway",
+    description="Production-grade Indian company intelligence, identification, and verification platform.",
+    version="1.0.0",
+    openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-from app.core.middleware import SecurityHeadersMiddleware
-from app.modules.auth.router import router as auth_router
-from app.modules.academic.router import router as academic_router
-from app.modules.content.router import router as content_router
-from app.modules.assessment.router import router as assessment_router
-
-# CORS Middleware
+# CORS Middleware (permitting all origin during local development/demo)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify frontend domains
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Custom Middlewares
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(RequestIDMiddleware)
+# Request Sanitization & Logging Middleware
+@app.middleware("http")
+async def sanitize_and_log_middleware(request: Request, call_next):
+    # Enforce no raw PAN in request query or URL path logging
+    safe_url = sanitize_log_message(str(request.url))
+    logger.info(f"[Request] {request.method} {safe_url}")
+    
+    response = await call_next(request)
+    
+    # Security Headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    return response
 
-# Exception Handlers
-app.add_exception_handler(AppException, app_exception_handler)
-app.add_exception_handler(Exception, global_exception_handler)
+# Mount CompanyLens API v1
+app.include_router(api_v1_router, prefix="/api/v1")
 
-# Routers
-app.include_router(health.router)
-app.include_router(auth_router, prefix=settings.api_v1_str)
-app.include_router(academic_router, prefix=settings.api_v1_str)
-app.include_router(content_router, prefix=settings.api_v1_str)
-app.include_router(assessment_router, prefix=settings.api_v1_str)
-
+@app.get("/health")
+@app.get("/api/v1/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "CompanyLens Platform",
+        "version": "1.0.0"
+    }
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Application starting up...")
-
+    logger.info("Initializing CompanyLens database schema...")
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database schema initialized.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database tables: {e}")

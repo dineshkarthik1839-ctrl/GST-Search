@@ -1,6 +1,5 @@
 """
-Content Router - Full REST API for Enterprise CMS.
-Endpoints: CRUD, Workflow, Revisions, Audit Logs, Bulk Operations, Import/Export.
+Content Router - Full REST API for Enterprise CMS & Resource Library.
 """
 import uuid
 import csv
@@ -33,7 +32,7 @@ from app.modules.content.schemas import (
 from app.core.logger import logger
 from app.core.exceptions import AppException
 
-router = APIRouter(prefix="/content", tags=["CMS - Content"])
+router = APIRouter(prefix="/content", tags=["CMS - Content & Resource Library"])
 
 
 def _auto_slug(title: str) -> str:
@@ -61,268 +60,96 @@ def _apply_extension(db: Session, item: ContentItem, data: ContentItemCreate | C
     if data.mindmap_details:
         ext = MindMapDetails(content_item_id=item.id, **data.mindmap_details.model_dump())
         db.merge(ext)
-    db.commit()
 
 
-# ─────────────────────── List & Search ───────────────────────────────────
+# ─────────────────────── Resource Library & Hub Static Routes ─────────────
 
-@router.get("", response_model=ContentItemListResponse, summary="Search & list content")
-def list_content(
-    q: Optional[str] = Query(default=None, description="Full-text search on title/description"),
+@router.get("/library", summary="Unified Resource Library search")
+def search_resource_library(
     content_type: Optional[ContentType] = Query(default=None),
-    status: Optional[ContentStatus] = Query(default=None),
+    q: Optional[str] = Query(default=None),
     language: Optional[str] = Query(default=None),
-    published_only: bool = Query(default=False),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=200),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    repo = ContentRepository(db)
-    return repo.search(
-        q=q,
-        content_type=content_type,
-        status=status,
-        language=language,
-        published_only=published_only,
-        skip=skip,
-        limit=limit,
+    from app.modules.content.services.resource_library import ResourceLibraryService
+    svc = ResourceLibraryService(db)
+    return svc.search_library(content_type=content_type, q=q, language=language, page=page, page_size=page_size)
+
+
+@router.get("/library/continue-learning", summary="Get student continue learning list")
+def get_continue_learning(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    from app.modules.content.services.resource_library import ResourceLibraryService
+    from app.modules.assessment.router import _get_active_user_id
+    svc = ResourceLibraryService(db)
+    user_id = _get_active_user_id(db, current_user)
+    items = svc.get_continue_learning(user_id=user_id)
+    return [
+        {
+            "id": str(p.id),
+            "content_item_id": str(p.content_item_id),
+            "title": p.content_item.title if p.content_item else "Resource",
+            "content_type": p.content_item.content_type.value if p.content_item else "PDF",
+            "last_page_read": p.last_page_read,
+            "video_timestamp_seconds": p.video_timestamp_seconds,
+            "completion_pct": p.completion_pct,
+            "last_accessed_at": p.last_accessed_at.isoformat() if p.last_accessed_at else None,
+        }
+        for p in items
+    ]
+
+
+@router.post("/library/{content_item_id}/progress", summary="Save continue learning progress")
+def save_resource_progress(
+    content_item_id: uuid.UUID,
+    last_page_read: int = Query(default=1),
+    video_timestamp_seconds: int = Query(default=0),
+    completion_pct: float = Query(default=0.0),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    from app.modules.content.services.resource_library import ResourceLibraryService
+    from app.modules.assessment.router import _get_active_user_id
+    svc = ResourceLibraryService(db)
+    user_id = _get_active_user_id(db, current_user)
+    progress = svc.save_progress(
+        user_id=user_id,
+        content_item_id=content_item_id,
+        last_page_read=last_page_read,
+        video_timestamp_seconds=video_timestamp_seconds,
+        completion_pct=completion_pct,
     )
+    return {"status": "SUCCESS", "progress_id": str(progress.id), "last_page_read": progress.last_page_read}
 
 
-# ─────────────────────── Create ──────────────────────────────────────────
-
-@router.post("", response_model=ContentItemResponse, status_code=http_status.HTTP_201_CREATED)
-def create_content(
-    payload: ContentItemCreate,
+@router.post("/library/{content_item_id}/download", summary="Track offline resource download")
+def track_resource_download(
+    content_item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Faculty")),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    repo = ContentRepository(db)
-
-    # Auto-generate slug if not provided
-    slug = payload.slug or _auto_slug(payload.title)
-
-    # Ensure slug is unique
-    if repo.get_by_slug(slug):
-        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
-
-    item = ContentItem(
-        title=payload.title,
-        slug=slug,
-        description=payload.description,
-        content_type=payload.content_type,
-        status=ContentStatus.DRAFT,
-        author_id=current_user.id,
-        language=payload.language,
-        thumbnail_url=payload.thumbnail_url,
-        publish_date=payload.publish_date,
-        expiry_date=payload.expiry_date,
-        metadata_json=payload.metadata_json,
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-
-    _apply_extension(db, item, payload)
-    db.refresh(item)
-
-    # Create initial revision
-    svc = ContentWorkflowService(db)
-    svc._create_revision(item, current_user.id, "Initial creation")
-    svc._audit(item, "CREATED", None, ContentStatus.DRAFT, current_user.id)
-    db.commit()
-
-    logger.info(f"Created ContentItem {item.id} ({item.slug}) by user {current_user.id}")
-    return item
+    from app.modules.content.services.resource_library import ResourceLibraryService
+    from app.modules.assessment.router import _get_active_user_id
+    svc = ResourceLibraryService(db)
+    user_id = _get_active_user_id(db, current_user)
+    dl = svc.track_download(user_id=user_id, content_item_id=content_item_id)
+    return {"status": "DOWNLOADED", "download_id": str(dl.id), "status_code": dl.download_status}
 
 
-# ─────────────────────── Get by ID / Slug ────────────────────────────────
-
-@router.get("/{content_id}", response_model=ContentItemResponse)
-def get_content(content_id: uuid.UUID, db: Session = Depends(get_db)):
-    repo = ContentRepository(db)
-    item = repo.get_by_id(content_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-    return item
-
-
-@router.get("/slug/{slug}", response_model=ContentItemResponse)
-def get_content_by_slug(slug: str, db: Session = Depends(get_db)):
-    repo = ContentRepository(db)
-    item = repo.get_by_slug(slug)
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-    return item
-
-
-# ─────────────────────── Update ──────────────────────────────────────────
-
-@router.patch("/{content_id}", response_model=ContentItemResponse)
-def update_content(
-    content_id: uuid.UUID,
-    payload: ContentItemUpdate,
+@router.post("/library/{content_item_id}/ai-chat", summary="Grounded AI Tutor response for resource")
+def resource_ai_chat(
+    content_item_id: uuid.UUID,
+    query: str = Query(..., min_length=2),
     db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Editor")),
 ):
-    repo = ContentRepository(db)
-    item = repo.get_by_id(content_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
+    from app.modules.content.services.resource_library import ResourceLibraryService
+    svc = ResourceLibraryService(db)
+    return svc.generate_ai_grounded_response(content_item_id=content_item_id, query=query)
 
-    if item.status == ContentStatus.PUBLISHED:
-        raise HTTPException(
-            status_code=422,
-            detail="Cannot edit PUBLISHED content. Use /spawn-draft to create a new version.",
-        )
-
-    update_data = payload.model_dump(exclude_none=True, exclude={"video_details", "book_details", "pdf_details", "quiz_details", "flashcard_details", "mindmap_details"})
-    for field, value in update_data.items():
-        setattr(item, field, value)
-    item.updated_at = datetime.now(timezone.utc)
-
-    _apply_extension(db, item, payload)
-    db.commit()
-    db.refresh(item)
-    logger.info(f"Updated ContentItem {item.id}")
-    return item
-
-
-# ─────────────────────── Workflow Transition ─────────────────────────────
-
-@router.post("/{content_id}/transition", response_model=ContentItemResponse, summary="Change content status")
-def transition_content(
-    content_id: uuid.UUID,
-    payload: TransitionRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Reviewer")),
-):
-    svc = ContentWorkflowService(db)
-    try:
-        item = svc.transition(
-            content_id=content_id,
-            new_status=payload.new_status,
-            performed_by_id=current_user.id,
-            notes=payload.notes,
-            publish_date=payload.publish_date,
-        )
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    return item
-
-
-# ─────────────────────── Spawn Draft from Published ──────────────────────
-
-@router.post("/{content_id}/spawn-draft", response_model=ContentItemResponse, summary="Clone published content as new draft")
-def spawn_draft(
-    content_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Editor")),
-):
-    svc = ContentWorkflowService(db)
-    try:
-        draft = svc.spawn_draft_from_published(content_id, current_user.id)
-    except AppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
-    return draft
-
-
-# ─────────────────────── Soft Delete ─────────────────────────────────────
-
-@router.delete("/{content_id}", status_code=http_status.HTTP_204_NO_CONTENT)
-def delete_content(
-    content_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Admin")),
-):
-    repo = ContentRepository(db)
-    item = repo.get_by_id(content_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-
-    if item.status == ContentStatus.PUBLISHED:
-        raise HTTPException(status_code=422, detail="Archive before deleting published content.")
-
-    repo.soft_delete(content_id)
-    logger.info(f"Soft-deleted ContentItem {content_id}")
-    return None
-
-
-# ─────────────────────── Revision History ────────────────────────────────
-
-@router.get("/{content_id}/revisions", response_model=List[ContentRevisionResponse])
-def get_revisions(content_id: uuid.UUID, db: Session = Depends(get_db)):
-    repo = ContentRevisionRepository(db)
-    return repo.get_history(content_id)
-
-
-# ─────────────────────── Audit Logs ──────────────────────────────────────
-
-@router.get("/{content_id}/audit-logs", response_model=List[ContentAuditLogResponse])
-def get_audit_logs(
-    content_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Reviewer")),
-):
-    repo = ContentAuditLogRepository(db)
-    return repo.get_by_content_item(content_id)
-
-
-# ─────────────────────── Bulk Operations ─────────────────────────────────
-
-@router.post("/bulk/status", summary="Bulk update content status")
-def bulk_update_status(
-    payload: BulkStatusRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Admin")),
-):
-    repo = ContentRepository(db)
-    count = repo.bulk_update_status(payload.ids, payload.new_status)
-    return {"updated": count}
-
-
-@router.post("/bulk/import", response_model=BulkImportResponse, summary="Bulk import content items")
-def bulk_import(
-    payload: BulkImportRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(RequireRole("Admin")),
-):
-    repo = ContentRepository(db)
-    created = 0
-    skipped = 0
-    errors: List[str] = []
-
-    for item_data in payload.items:
-        try:
-            if payload.skip_duplicates and repo.check_duplicate(item_data.title, item_data.content_type):
-                skipped += 1
-                continue
-
-            slug = _auto_slug(item_data.title)
-            if repo.get_by_slug(slug):
-                slug = f"{slug}-{uuid.uuid4().hex[:6]}"
-
-            item = ContentItem(
-                title=item_data.title,
-                slug=slug,
-                description=item_data.description,
-                content_type=item_data.content_type,
-                status=ContentStatus.DRAFT,
-                version=1,
-                author_id=current_user.id,
-                language=item_data.language,
-            )
-            db.add(item)
-            db.flush()  # get id without full commit
-            created += 1
-        except Exception as e:
-            errors.append(f"Row '{item_data.title}': {str(e)}")
-
-    db.commit()
-    return BulkImportResponse(created=created, skipped=skipped, errors=errors)
-
-
-# ─────────────────────── Export ──────────────────────────────────────────
 
 @router.get("/export/csv", summary="Export content list as CSV")
 def export_csv(
@@ -351,3 +178,262 @@ def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=content_export.csv"},
     )
+
+
+@router.post("/bulk/status", response_model=dict, summary="Bulk update content status")
+def bulk_update_status(
+    payload: BulkStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Publisher")),
+):
+    repo = ContentRepository(db)
+    count = repo.bulk_update_status(payload.ids, payload.new_status)
+    return {"updated_count": count, "new_status": payload.new_status.value}
+
+
+@router.post("/bulk/import", response_model=BulkImportResponse, summary="Bulk import content items")
+def bulk_import_items(
+    payload: BulkImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Faculty")),
+):
+    repo = ContentRepository(db)
+    created = 0
+    skipped = 0
+    errors = []
+
+    for item in payload.items:
+        try:
+            slug = item.slug or _auto_slug(item.title)
+            if payload.skip_duplicates:
+                existing = repo.get_by_slug(slug)
+                if not existing:
+                    from sqlalchemy import select, func
+                    existing = db.execute(
+                        select(ContentItem).filter(
+                            func.lower(ContentItem.title) == item.title.lower(),
+                            ContentItem.is_deleted == False
+                        )
+                    ).scalars().first()
+
+                if existing:
+                    skipped += 1
+                    continue
+
+            new_entity = ContentItem(
+                title=item.title,
+                slug=slug,
+                description=item.description,
+                content_type=item.content_type,
+                status=ContentStatus.DRAFT,
+                language=item.language,
+                author_id=current_user.id,
+            )
+            db.add(new_entity)
+            db.flush()
+            _apply_extension(db, new_entity, item)
+            created += 1
+        except Exception as e:
+            errors.append(f"Title '{item.title}': {str(e)}")
+
+    db.commit()
+    return BulkImportResponse(created=created, skipped=skipped, errors=errors)
+
+
+# ─────────────────────── Search Content Items ────────────────────────────
+
+@router.get("", response_model=ContentItemListResponse, summary="Search & filter content items")
+def list_content(
+    q: Optional[str] = Query(default=None, description="Full-text search query"),
+    content_type: Optional[ContentType] = Query(default=None),
+    status: Optional[ContentStatus] = Query(default=None),
+    language: Optional[str] = Query(default=None),
+    author_id: Optional[uuid.UUID] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    repo = ContentRepository(db)
+    result = repo.search(
+        q=q, content_type=content_type, status=status,
+        language=language, author_id=author_id, page=page, page_size=page_size
+    )
+    return ContentItemListResponse(
+        items=result["items"],
+        total=result["total"],
+        page=result["page"],
+        size=result["size"],
+        page_size=result["page_size"],
+        total_pages=result["total_pages"],
+    )
+
+
+# ─────────────────────── Create Content Item ────────────────────────────
+
+@router.post("", response_model=ContentItemResponse, status_code=http_status.HTTP_201_CREATED)
+def create_content(
+    payload: ContentItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Faculty")),
+):
+    repo = ContentRepository(db)
+    slug = payload.slug or _auto_slug(payload.title)
+
+    if repo.get_by_slug(slug):
+        raise HTTPException(status_code=409, detail=f"Slug '{slug}' already exists.")
+
+    item = ContentItem(
+        title=payload.title,
+        slug=slug,
+        description=payload.description,
+        content_type=payload.content_type,
+        status=ContentStatus.DRAFT,
+        thumbnail_url=payload.thumbnail_url,
+        language=payload.language,
+        publish_date=payload.publish_date,
+        expiry_date=payload.expiry_date,
+        metadata_json=payload.metadata_json,
+        author_id=current_user.id,
+    )
+    db.add(item)
+    db.flush()
+
+    _apply_extension(db, item, payload)
+    db.commit()
+    db.refresh(item)
+
+    svc = ContentWorkflowService(db)
+    svc._create_revision(item, current_user.id, "Initial creation")
+    svc._audit(item, "CREATED", None, ContentStatus.DRAFT, current_user.id)
+    db.commit()
+
+    logger.info(f"Created ContentItem {item.id} ({item.slug}) by user {current_user.id}")
+    return item
+
+
+# ─────────────────────── Get by ID / Slug ────────────────────────────────
+
+@router.get("/slug/{slug}", response_model=ContentItemResponse)
+def get_content_by_slug(slug: str, db: Session = Depends(get_db)):
+    repo = ContentRepository(db)
+    item = repo.get_by_slug(slug)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    return item
+
+
+@router.get("/{content_id}", response_model=ContentItemResponse)
+def get_content(content_id: uuid.UUID, db: Session = Depends(get_db)):
+    repo = ContentRepository(db)
+    item = repo.get_by_id(content_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    return item
+
+
+# ─────────────────────── Update Content Item ────────────────────────────
+
+@router.patch("/{content_id}", response_model=ContentItemResponse)
+def update_content(
+    content_id: uuid.UUID,
+    payload: ContentItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Editor")),
+):
+    repo = ContentRepository(db)
+    item = repo.get_by_id(content_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    if item.status == ContentStatus.PUBLISHED:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="PUBLISHED items are immutable. Spawn a new draft first."
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if not field.endswith("_details"):
+            setattr(item, field, value)
+
+    _apply_extension(db, item, payload)
+    db.commit()
+    db.refresh(item)
+
+    svc = ContentWorkflowService(db)
+    svc._create_revision(item, current_user.id, "Content update")
+    svc._audit(item, "UPDATED", item.status, item.status, current_user.id)
+    db.commit()
+
+    logger.info(f"Updated ContentItem {content_id} by user {current_user.id}")
+    return item
+
+
+# ─────────────────────── Workflow Transitions ────────────────────────────
+
+@router.post("/{content_id}/transition", response_model=ContentItemResponse)
+def transition_content_workflow(
+    content_id: uuid.UUID,
+    payload: TransitionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Reviewer")),
+):
+    svc = ContentWorkflowService(db)
+    try:
+        updated = svc.transition(content_id, payload.new_status, current_user.id, payload.notes)
+        return updated
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.post("/{content_id}/spawn-draft", response_model=ContentItemResponse)
+def spawn_draft_from_published(
+    content_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Editor")),
+):
+    svc = ContentWorkflowService(db)
+    try:
+        draft = svc.spawn_draft_from_published(content_id, current_user.id)
+        return draft
+    except AppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+# ─────────────────────── Soft Delete Content Item ────────────────────────
+
+@router.delete("/{content_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+def delete_content(
+    content_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Admin")),
+):
+    repo = ContentRepository(db)
+    item = repo.get_by_id(content_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    if item.status == ContentStatus.PUBLISHED:
+        raise HTTPException(status_code=422, detail="Archive published content before deletion.")
+
+    repo.soft_delete(content_id)
+    logger.info(f"Soft-deleted ContentItem {content_id}")
+    return None
+
+
+# ─────────────────────── Revisions & Audit Logs ──────────────────────────
+
+@router.get("/{content_id}/revisions", response_model=List[ContentRevisionResponse])
+def get_revisions(content_id: uuid.UUID, db: Session = Depends(get_db)):
+    repo = ContentRevisionRepository(db)
+    return repo.get_history(content_id)
+
+
+@router.get("/{content_id}/audit-logs", response_model=List[ContentAuditLogResponse])
+def get_audit_logs(
+    content_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RequireRole("Reviewer")),
+):
+    repo = ContentAuditLogRepository(db)
+    return repo.get_by_content(content_id)
