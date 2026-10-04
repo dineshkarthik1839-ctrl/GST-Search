@@ -58,6 +58,28 @@ async def health_check():
         "version": "1.0.0"
     }
 
+# Mount Frontend SPA Build (All-in-One Deployment on Port 8000)
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+
+if os.path.exists(FRONTEND_DIST):
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="static_assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        # Allow FastAPI API and Swagger docs to handle their own routes
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path == "health":
+            return Response(status_code=404)
+        target_file = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(target_file):
+            return FileResponse(target_file)
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing CompanyLens database schema...")
@@ -66,3 +88,4 @@ async def startup_event():
         logger.info("Database schema initialized.")
     except Exception as e:
         logger.error(f"Failed to initialize database tables: {e}")
+
