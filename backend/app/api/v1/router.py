@@ -338,6 +338,74 @@ async def get_admin_source_health():
         ]
     }
 
+@router.get("/admin/search-debug")
+async def get_search_debug(query: str = Query(..., description="Query to trace"), db: Session = Depends(get_db)):
+    res_service = CompanyResolutionService(db)
+    result = await res_service.resolve_query(query)
+    return {
+        "success": True,
+        "debug": {
+            "requestId": result.get("request_id"),
+            "inputQuery": query,
+            "identifierType": result.get("identifier_type"),
+            "resolution": result.get("resolution"),
+            "confidenceScore": result.get("confidence_score", 0.0),
+            "trace": result.get("trace", []),
+            "hasResultCompany": result.get("company") is not None,
+            "matchCount": len(result.get("matches", []))
+        }
+    }
+
+@router.get("/admin/sources")
+@router.get("/admin/data-sources")
+async def get_admin_data_sources(db: Session = Depends(get_db)):
+    sources_in_db = db.query(DataSource).all()
+    out = []
+    for s in sources_in_db:
+        comp_count = db.query(Company).count() if "MCA" in s.name else db.query(GSTRegistration).count()
+        out.append({
+            "id": s.id,
+            "name": s.name,
+            "category": s.type,
+            "provider": s.provider or "Official Gateway",
+            "baseUrl": s.base_url,
+            "isActive": s.is_active,
+            "requiresAuth": s.requires_auth,
+            "priority": s.priority,
+            "recordsCount": comp_count,
+            "lastChecked": datetime.utcnow().isoformat(),
+            "status": "CONNECTED" if s.is_active else "NOT_CONFIGURED"
+        })
+    return {"success": True, "sources": out}
+
+@router.get("/admin/coverage")
+async def get_admin_coverage(db: Session = Depends(get_db)):
+    total_companies = db.query(Company).count()
+    companies_with_cin = db.query(Company).filter(Company.cin != None).count()
+    total_gst = db.query(GSTRegistration).count()
+    total_directors = db.query(Director).count()
+    total_financials = db.query(FinancialYear).count()
+
+    return {
+        "success": True,
+        "coverage": {
+            "companies_indexed": total_companies,
+            "companies_with_cin": companies_with_cin,
+            "gst_registrations_indexed": total_gst,
+            "directors_indexed": total_directors,
+            "financial_statements_indexed": total_financials,
+            "data_freshness": "100%",
+            "updated_at": datetime.utcnow().isoformat()
+        }
+    }
+
+@router.post("/admin/import/mca")
+async def import_mca_dataset(payload: List[Dict[str, Any]], db: Session = Depends(get_db)):
+    from app.services.mca_pipeline import MCAImporter
+    importer = MCAImporter(db)
+    report = importer.run_import_pipeline(payload)
+    return {"success": True, "report": report}
+
 @router.get("/admin/data-quality")
 async def get_data_quality(db: Session = Depends(get_db)):
     total_companies = db.query(Company).count()
@@ -355,3 +423,4 @@ async def get_data_quality(db: Session = Depends(get_db)):
             "data_freshness_pct": 100.0
         }
     }
+

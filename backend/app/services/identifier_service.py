@@ -184,6 +184,15 @@ def normalize_company_name(name: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+class IdentifierDetector:
+    """
+    Intelligent Input Identifier Detection System.
+    Detects GSTIN, PAN, CIN, or COMPANY_NAME from raw input text.
+    """
+    @staticmethod
+    def detect(query: str) -> Tuple[IdentifierType, str, Dict[str, Any]]:
+        return detect_identifier(query)
+
 def detect_identifier(query: str) -> Tuple[IdentifierType, str, Dict[str, Any]]:
     """
     Intelligently detects whether an input query is a GSTIN, PAN, CIN, or Company Name.
@@ -197,18 +206,21 @@ def detect_identifier(query: str) -> Tuple[IdentifierType, str, Dict[str, Any]]:
         val = validate_gstin(compact)
         if val["is_valid"]:
             return IdentifierType.GSTIN, compact, val
+        return IdentifierType.GSTIN, compact, {"is_valid": False, "error": "INVALID_GSTIN"}
 
     # 2. Check CIN (21 chars)
     if len(compact) == 21 and compact[0] in ['L', 'U'] and compact[1:6].isdigit():
         val = validate_cin(compact)
         if val["is_valid"]:
             return IdentifierType.CIN, compact, val
+        return IdentifierType.CIN, compact, {"is_valid": False, "error": "INVALID_CIN"}
 
     # 3. Check PAN (10 chars)
     if len(compact) == 10 and compact[:5].isalpha() and compact[5:9].isdigit() and compact[9].isalpha():
         val = validate_pan(compact)
         if val["is_valid"]:
             return IdentifierType.PAN, compact, val
+        return IdentifierType.PAN, compact, {"is_valid": False, "error": "INVALID_PAN"}
 
     # 4. Fallback to Company Name Search
     normalized_name = normalize_company_name(raw)
@@ -217,3 +229,4 @@ def detect_identifier(query: str) -> Tuple[IdentifierType, str, Dict[str, Any]]:
         "normalized_value": normalized_name,
         "original_query": raw
     }
+

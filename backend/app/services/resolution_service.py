@@ -41,11 +41,33 @@ class CompanyResolutionService:
         """
         Main entry point for company query resolution.
         Coordinating detection -> validation -> local DB -> connectors -> graph connection -> profile assembly.
+        Produces internal request trace (req_...) with step-by-step audit metadata.
         """
-        id_type, normalized, details = detect_identifier(query)
-        q_hash = hash_identifier(normalized)
+        req_id = f"req_{uuid.uuid4().hex[:12]}"
+        trace = [
+            {"step": "INPUT_RECEIVED", "timestamp": datetime.utcnow().isoformat(), "details": "Query received"},
+        ]
 
-        # Log search history securely (without storing raw PAN)
+        id_type, normalized, details = detect_identifier(query)
+        trace.append({"step": "IDENTIFIER_DETECTED", "timestamp": datetime.utcnow().isoformat(), "details": f"Type: {id_type.value}"})
+
+        if not details.get("is_valid", True):
+            trace.append({"step": "IDENTIFIER_VALIDATED", "timestamp": datetime.utcnow().isoformat(), "details": "Validation failed"})
+            return {
+                "request_id": req_id,
+                "identifier_type": id_type.value,
+                "resolution": "INVALID_INPUT",
+                "searched_identifier": normalized,
+                "confidence_score": 0.0,
+                "company": None,
+                "matches": [],
+                "trace": trace,
+                "message": details.get("error", f"Invalid format for {id_type.value}")
+            }
+
+        trace.append({"step": "IDENTIFIER_VALIDATED", "timestamp": datetime.utcnow().isoformat(), "details": "Validation passed"})
+
+        q_hash = hash_identifier(normalized)
         try:
             hist = SearchHistory(
                 user_id=user_id,
@@ -59,13 +81,17 @@ class CompanyResolutionService:
             self.db.rollback()
 
         if id_type == IdentifierType.GSTIN:
-            return await self._resolve_by_gstin(normalized, details)
+            res = await self._resolve_by_gstin(normalized, details)
         elif id_type == IdentifierType.CIN:
-            return await self._resolve_by_cin(normalized, details)
+            res = await self._resolve_by_cin(normalized, details)
         elif id_type == IdentifierType.PAN:
-            return await self._resolve_by_pan(normalized, details)
+            res = await self._resolve_by_pan(normalized, details)
         else:
-            return await self._resolve_by_name(normalized)
+            res = await self._resolve_by_name(normalized)
+
+        res["request_id"] = req_id
+        res["trace"] = trace
+        return res
 
     async def _resolve_by_gstin(self, gstin: str, details: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -509,6 +535,13 @@ class CompanyResolutionService:
                 "source_type": SourceLabel.GOVERNMENT_OPEN_DATA.value,
                 "last_retrieved": "03 October 2026",
                 "verification": "Source Reported"
+            },
+            "availability": {
+                "company": True,
+                "gst": len(gst_list) > 0,
+                "mca": company.cin is not None,
+                "management": len(directors) > 0,
+                "financials": financial_record.get("status") == "AVAILABLE"
             },
             "gst_registrations": gst_list,
             "directors": directors,

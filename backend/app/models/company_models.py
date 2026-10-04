@@ -199,3 +199,21 @@ class ApiLog(Base):
     latency_ms = Column(Integer, nullable=False)
     error_code = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class RawMCARecord(Base):
+    __tablename__ = "raw_mca_records"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cin = Column(String(21), unique=True, nullable=False, index=True)
+    company_name = Column(Text, nullable=False, index=True)
+    company_status = Column(String(50), nullable=True)
+    company_class = Column(String(100), nullable=True)
+    company_category = Column(String(100), nullable=True)
+    authorized_capital = Column(Numeric(18, 2), nullable=True)
+    paid_up_capital = Column(Numeric(18, 2), nullable=True)
+    incorporation_date = Column(Date, nullable=True)
+    registered_state = Column(String(100), nullable=True)
+    roc = Column(String(100), nullable=True)
+    raw_payload = Column(JSON, nullable=True)
+    imported_at = Column(DateTime, default=datetime.utcnow)
+
