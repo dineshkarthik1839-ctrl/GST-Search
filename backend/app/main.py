@@ -50,13 +50,15 @@ async def sanitize_and_log_middleware(request: Request, call_next):
 app.include_router(api_v1_router, prefix="/api/v1")
 
 @app.get("/health")
+@app.get("/api/health")
 @app.get("/api/v1/health")
 async def health_check():
     return {
-        "status": "healthy",
+        "status": "ok",
         "service": "CompanyLens Platform",
         "version": "1.0.0"
     }
+
 
 # Mount Frontend SPA Build (All-in-One Deployment on Port 8000)
 import os
@@ -72,13 +74,14 @@ if os.path.exists(FRONTEND_DIST):
     
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
-        # Allow FastAPI API and Swagger docs to handle their own routes
-        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path == "health":
-            return Response(status_code=404)
+        # Exclude API gateway and health check endpoints from SPA catch-all
+        if full_path.startswith("api/") or full_path == "health" or full_path == "api/health":
+            return Response(content='{"detail":"Not Found"}', media_type="application/json", status_code=404)
         target_file = os.path.join(FRONTEND_DIST, full_path)
         if os.path.isfile(target_file):
             return FileResponse(target_file)
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
 
 @app.on_event("startup")
 async def startup_event():
